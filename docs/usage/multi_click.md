@@ -44,7 +44,7 @@ configured On/Off action (`toggle_simple` sends Toggle). When `max_press_count`
 is 1 there is no extra wait after release; for 2 or 3 it waits the configured
 confirmation window. Double/triple clicks and holds send no On/Off command in
 this mode. Local relay modes, physical toggle switches, gesture events and
-Move/StopWithOnOff are unaffected. There is no Scenes client in this build.
+Move/StopWithOnOff are unaffected.
 
 `single_click` adds enum value `0x04` to `genOnOffSwitchCfg` attribute `0xff05`.
 The Zigbee2MQTT converter lists the option but will not write it unless a live
@@ -62,6 +62,40 @@ the pending command without suppressing an otherwise valid gesture report.
 Known inherited limitation: contact bounce close to the hold threshold can
 classify a hold as a short press. This affects both `short_press` and
 `single_click`; Phase 2 does not change the button debounce logic.
+
+## Native scene recall (phase 3)
+
+Supported Telink switches advertise a `genScenes` **output** cluster. The
+switch does not store scenes: the lamps in a Zigbee group do. After loading
+the matching external converter and updating the switch firmware:
+
+1. Run Interview and Reconfigure on the switch. In Zigbee2MQTT, bind the
+   switch endpoint's `genScenes` cluster to **exactly one** Zigbee group. Do
+   not bind Scenes to the coordinator or directly to a device. Keep the
+   existing On/Off, Level Control and gesture reporting bindings.
+2. In the same Zigbee group, store the two scenes (`scene_store`) and verify
+   them with `scene_recall` in Zigbee2MQTT. For example, send
+   `{"scene_recall":1}` to `zigbee2mqtt/<group>/set`. Use known stable
+   brightness values on a no-neutral installation.
+3. On the switch's Exposes page, select `single_click` binding mode and set
+   the click limit to `3` for both double and triple. Set `scene_group_id_switch`
+   to the numeric Zigbee group ID, set `double_click_scene_id_switch` and
+   `triple_click_scene_id_switch` (defaults **1** and **2**), then set
+   `scene_enabled_switch` to true. Reads after writes confirm the applied value.
+
+Scene recall is disabled by default. A missing, mismatched, ambiguous or
+unicast Scenes binding causes no scene command to be sent. The destination
+group must match the Group ID in the RecallScene payload. Group ID `0` means
+unset; disable recall before clearing it. Scene IDs `0`–`255` are accepted.
+The configured On/Off action still handles confirmed single clicks, and the
+hold/release and Zigbee2MQTT actions are unchanged. Direct group recall does
+not require HA or Zigbee2MQTT to run after configuration, but the Zigbee mesh
+and the End Device's parent must remain available.
+
+Silicon Labs builds and layouts without sufficient descriptor capacity do not
+advertise this feature. The new per-switch scene record does not change the
+previous NVM records. Group 0/unicast scenes and multiple group targets are not
+supported. No default color-temperature logic is applied to Toggle.
 
 ## Verification without hardware
 
