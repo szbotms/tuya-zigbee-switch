@@ -70,6 +70,25 @@ async function verifyConfig() {
             .map((c) => c.convert(model, msg, undefined, {}, meta));
         assert.deepEqual(outputs.filter(Boolean), [{[`${name}_switch`]: value}]);
     }
+
+    const key = "switch_binded_mode";
+    const property = `${key}_switch`;
+    const bindingModes = {press_start: 1, long_press: 2, short_press: 3, single_click: 4};
+    assert.deepEqual(new Set(model.exposes.find((e) => e.property === property).values), new Set(Object.keys(bindingModes)));
+    const tz = model.toZigbee.find((c) => c.key.includes(key));
+    for (const [name, value] of Object.entries(bindingModes)) {
+        const endpoint = {
+            ID: 1,
+            write: async (cluster, payload) => assert.deepEqual([cluster, payload], ["genOnOffSwitchCfg", {0xff05: {value, type: 0x30}}]),
+            read: async (cluster, attrs) => assert.deepEqual([cluster, attrs], ["genOnOffSwitchCfg", [0xff05]]),
+        };
+        await tz.convertSet(endpoint, key, name, meta);
+        await tz.convertGet(endpoint, key, meta);
+        const msg = {endpoint, data: {0xff05: value}, type: "readResponse"};
+        const outputs = model.fromZigbee.filter((c) => c.cluster === "genOnOffSwitchCfg" && c.type.includes(msg.type))
+            .map((c) => c.convert(model, msg, undefined, {}, meta));
+        assert.deepEqual(outputs.filter(Boolean), [{[property]: name}]);
+    }
 }
 
 verifyConfig().then(() => console.log("Switch gesture converter checks passed"), (error) => {

@@ -37,6 +37,7 @@ typedef struct {
     uint8_t              max_press_count;
     uint8_t              saved_max_press_count;
     uint8_t              press_count;
+    bool                 single_click_binding_armed;
 } zigbee_switch_cluster;
 
 void switch_cluster_add_to_endpoint(zigbee_switch_cluster *cluster,

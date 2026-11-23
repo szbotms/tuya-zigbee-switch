@@ -41,6 +41,7 @@ extern uint8_t switch_clusters_cnt;
 void switch_cluster_on_button_press(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_release(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_long_press(zigbee_switch_cluster *cluster);
+void switch_cluster_binding_action_on(zigbee_switch_cluster *cluster);
 static bool switch_cluster_has_valid_relay(
     const zigbee_switch_cluster *cluster);
 
@@ -107,14 +108,19 @@ static void confirm_press(void *arg) {
     zigbee_switch_cluster *cluster = arg;
 
     if (cluster->press_count != 0) {
+        if (cluster->press_count == 1 && cluster->single_click_binding_armed) {
+            switch_cluster_binding_action_on(cluster);
+        }
         report_gesture(cluster, gesture_press[cluster->press_count - 1]);
         cluster->press_count = 0;
+        cluster->single_click_binding_armed = false;
     }
 }
 
 static void cancel_press_sequence(zigbee_switch_cluster *cluster) {
     hal_tasks_unschedule(&cluster->confirm_press_task);
     cluster->press_count = 0;
+    cluster->single_click_binding_armed = false;
 }
 
 static void sync_switch_indicator_led(zigbee_switch_cluster *cluster) {
@@ -453,6 +459,10 @@ void switch_cluster_on_button_press(zigbee_switch_cluster *cluster) {
     }
 
     hal_tasks_unschedule(&cluster->confirm_press_task);
+    if (cluster->press_count == 0) {
+        cluster->single_click_binding_armed =
+            cluster->binded_mode == ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK;
+    }
     if (cluster->press_count < cluster->max_press_count) {
         cluster->press_count++;
     }
@@ -509,6 +519,7 @@ void switch_cluster_on_button_release(zigbee_switch_cluster *cluster) {
         switch_cluster_level_stop(cluster);
         report_gesture(cluster, gesture_release[hold_idx]);
         cluster->press_count = 0;
+        cluster->single_click_binding_armed = false;
     }
 
     cluster->multistate_state = MULTISTATE_NOT_PRESSED;
@@ -526,6 +537,7 @@ void switch_cluster_on_button_release(zigbee_switch_cluster *cluster) {
                                            cluster->confirm_release_ms)) {
             // Don't emit an early single or merge this sequence into a later one.
             cluster->press_count = 0;
+            cluster->single_click_binding_armed = false;
             printf("Switch %u: gesture timer unavailable\r\n", cluster->switch_idx);
         }
     }
@@ -590,10 +602,21 @@ void switch_cluster_on_write_attr(zigbee_switch_cluster *cluster,
             cluster->max_press_count == cluster->saved_max_press_count) {
             return;
         }
-        if (store_gesture_config(cluster) && !cluster->button->pressed) {
-            cancel_press_sequence(cluster);
+        if (store_gesture_config(cluster)) {
+            cluster->single_click_binding_armed = false;
+            if (!cluster->button->pressed) {
+                cancel_press_sequence(cluster);
+            }
         }
         return;
+    }
+    // A delayed command must not apply a binding configuration written after
+    // the sequence started. Keep collecting/reporting the gesture itself.
+    if (attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_BINDING_MODE ||
+        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_ACTIONS ||
+        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_INDEX ||
+        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_MODE) {
+        cluster->single_click_binding_armed = false;
     }
     printf("Index at write attr: %d\r\n", cluster->switch_idx);
     if (attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_INDEX) {

@@ -166,6 +166,7 @@
 #define ZCL_ONOFF_CONFIGURATION_BINDED_MODE_RISE                       0x01
 #define ZCL_ONOFF_CONFIGURATION_BINDED_MODE_LONG                       0x02
 #define ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT                      0x03
+#define ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK               0x04
 
 
 // Level cluster

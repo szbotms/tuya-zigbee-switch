@@ -6,6 +6,7 @@ from client import Event, StubProc
 
 from tests.conftest import Device
 from tests.zcl_consts import (
+    ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_BINDING_MODE as BINDING_MODE,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_CONFIRM_RELEASE_MS as CONFIRM,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MAX_PRESS_COUNT as MAX_COUNT,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MODE as MODE,
@@ -16,11 +17,16 @@ from tests.zcl_consts import (
     ZCL_CLUSTER_ON_OFF_SWITCH_CONFIG as SWITCH_CFG,
     ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF,
     ZCL_CMD_LEVEL_STOP_WITH_ON_OFF,
+    ZCL_CMD_ONOFF_OFF,
     ZCL_CMD_ONOFF_TOGGLE,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT,
+    ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK,
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED,
+    ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT,
+    ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON,
     ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE,
     ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY,
+    ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY_NC,
     ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE,
 )
 
@@ -95,6 +101,7 @@ def test_window_and_endpoint_isolation(device, button_pins):
 @pytest.mark.parametrize("taps,hold,release", [(0, 2, 6), (1, 8, 9), (2, 11, 12)])
 def test_hold_uses_existing_move_stop(device, button_pin, taps, hold, release):
     setup_button(device, 1, 3)
+    device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
     reports = collect_reports(device.p)
     for _ in range(taps):
         device.click_button(button_pin)
@@ -111,6 +118,7 @@ def test_hold_uses_existing_move_stop(device, button_pin, taps, hold, release):
     assert [cmd.cmd for cmd in device.zcl_list_cmds(1, ZCL_CLUSTER_LEVEL_CONTROL)] == [
         ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF, ZCL_CMD_LEVEL_STOP_WITH_ON_OFF,
     ]
+    assert device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF) == []
 
 
 @pytest.mark.parametrize("limit", [1, 2])
@@ -145,6 +153,99 @@ def test_avatto_end_device_short_binding_timing(limit):
         assert len(device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)) == limit
 
 
+@pytest.mark.parametrize("limit,clicks,code", [(1, 1, 5), (2, 1, 5), (2, 2, 7), (3, 3, 10)])
+def test_avatto_end_device_single_click_binding(limit, clicks, code):
+    config = "hbxsdd6k;TS0011-avatto;BB4u;LB5;SC0u;RC2;"
+    with StubProc(cmd=["./build/stub/stub_end_device"], device_config=config) as proc:
+        device = Device(proc)
+        device.set_gpio("C0", 1)
+        device.step_time(60)
+        setup_button(device, 1, limit)
+        device.zcl_switch_relay_mode_set(1, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED)
+        device.zcl_switch_actions_set(1, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE)
+        device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+        reports = collect_reports(proc)
+
+        for _ in range(clicks):
+            device.press_button("C0")
+            assert device.zcl_switch_get_multistate_value(1) == "1"
+            assert not device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)
+            device.release_button("C0")
+            assert device.zcl_switch_get_multistate_value(1) == "0"
+
+        expected_cmds = [ZCL_CMD_ONOFF_TOGGLE] if clicks == 1 else []
+        if limit > 1:
+            device.step_time(199)
+            assert device.zcl_relay_get(2) == "0"
+            assert reports == []
+            assert not device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)
+            device.step_time(1)
+
+        for delay in (0, 400):
+            device.step_time(delay)
+            assert device.zcl_relay_get(2) == "0"
+            assert reports == [(1, code)]
+            assert [cmd.cmd for cmd in device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)] == expected_cmds
+
+
+def test_single_click_mode_preserves_nc_short_relay_and_configured_command(device, relay_button_pair):
+    pair = relay_button_pair
+    ep = pair.switch_endpoint
+    setup_button(device, ep, 2)
+    device.zcl_switch_mode_set(ep, ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY_NC)
+    device.zcl_switch_relay_mode_set(ep, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT)
+    device.zcl_switch_actions_set(ep, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE)
+    device.zcl_switch_binding_mode_set(ep, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+
+    # Establish the NC released level first (stub fixture starts high).
+    device.press_button(pair.button_pin)
+    for state in ("1", "0"):
+        device.release_button(pair.button_pin)  # High is NC pressed.
+        device.press_button(pair.button_pin)  # Low is NC released.
+        assert device.zcl_relay_get(pair.relay_endpoint) == state
+    device.step_time(200)
+    assert device.zcl_relay_get(pair.relay_endpoint) == "0"
+    assert not device.zcl_list_cmds(ep, ZCL_CLUSTER_ON_OFF)
+
+    device.zcl_switch_actions_set(ep, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON)
+    device.zcl_relay_on(pair.relay_endpoint)
+    device.release_button(pair.button_pin)
+    device.press_button(pair.button_pin)
+    assert device.zcl_relay_get(pair.relay_endpoint) == "0"  # Immediate local OFF.
+    assert not device.zcl_list_cmds(ep, ZCL_CLUSTER_ON_OFF)
+    device.step_time(200)
+    assert device.zcl_switch_get_multistate_value(ep) == "0"
+    assert [cmd.cmd for cmd in device.zcl_list_cmds(ep, ZCL_CLUSTER_ON_OFF)] == [ZCL_CMD_ONOFF_OFF]
+
+
+@pytest.mark.parametrize("enable_during_window", [True, False])
+def test_binding_mode_write_does_not_apply_to_pending_click(device, button_pin, enable_during_window):
+    setup_button(device, 1, 2)
+    single = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK
+    short = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT
+    device.zcl_switch_binding_mode_set(1, short if enable_during_window else single)
+    reports = collect_reports(device.p)
+    device.click_button(button_pin)
+    assert device.zcl_switch_get_multistate_value(1) == "0"
+    device.clear_events()  # Only the legacy mode may have already sent a command.
+    device.zcl_switch_binding_mode_set(1, single if enable_during_window else short)
+    device.step_time(200)
+    assert device.zcl_switch_get_multistate_value(1) == "0"
+    assert reports == [(1, 5)]
+    assert not device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)
+
+
+def test_single_click_binding_mode_persists(device_config):
+    with StubProc(device_config=device_config) as proc:
+        device = Device(proc)
+        device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+    with StubProc(device_config=device_config) as proc:
+        device = Device(proc)
+        assert device.read_zigbee_attr(1, SWITCH_CFG, BINDING_MODE) == "4"
+        assert device.read_zigbee_attr(2, SWITCH_CFG, BINDING_MODE) == "3"
+        assert Path("stub_nvm_data/item_04.bin").stat().st_size == 8
+
+
 def test_config_writes_cancel_pending_confirmation(device, button_pin):
     setup_button(device, 1, 3)
     reports = collect_reports(device.p)
@@ -169,16 +270,19 @@ def test_config_writes_cancel_pending_confirmation(device, button_pin):
 
 def test_optional_timer_failure_discards_sequence(device, button_pin):
     setup_button(device, 1, 2)
+    device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
     reports = collect_reports(device.p)
     assert device.p.exec("task_reject 1").ok
     device.click_button(button_pin)
     assert device.zcl_switch_get_multistate_value(1) == "0"
     assert reports == []
+    assert not device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)
     assert device.p.exec("task_reject 0").ok
     device.click_button(button_pin)
     device.step_time(200)
     assert device.zcl_switch_get_multistate_value(1) == "0"
     assert reports == [(1, 5)]
+    assert [cmd.cmd for cmd in device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)] == [ZCL_CMD_ONOFF_TOGGLE]
 
 
 def test_unchanged_gesture_config_does_not_write_or_cancel(device, button_pin):

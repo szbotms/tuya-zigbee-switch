@@ -1,4 +1,4 @@
-# Momentary switch gestures (phase 1)
+# Momentary switch gestures
 
 Gestures apply to momentary and normally closed momentary switches. A toggle
 switch still reports its physical position. Gesture settings are per switch and
@@ -32,22 +32,35 @@ Writing zero restores the default for that setting.
 Unchanged settings do not write flash. When a save fails, readback returns the
 previous settings; a successful ZCL write response alone does not prove
 persistence. If the Telink timer reserve would be used, the pending gesture
-is dropped without changing local relay or binding behavior.
+is dropped. In `single_click` binding mode no On/Off command is sent for a
+dropped gesture; legacy edge-triggered binding and local relay behavior continue.
 
-**Binding behavior is unchanged.** In `short_press` binding mode an On/Off
-command still goes out on **each** short release, even if the gesture is later
-reported as a double or triple. Relay modes and Move/StopWithOnOff behavior
-remain independent of gesture reporting. This build has no Scenes client.
+## Confirmed single-click binding (phase 2)
+
+The default, `short_press`, is unchanged: it sends an On/Off command on each
+short release even during a multi-click gesture. To send only on confirmed
+single clicks, choose `single_click` in `switch_binded_mode_switch`. It uses the
+configured On/Off action (`toggle_simple` sends Toggle). When `max_press_count`
+is 1 there is no extra wait after release; for 2 or 3 it waits the configured
+confirmation window. Double/triple clicks and holds send no On/Off command in
+this mode. Local relay modes, physical toggle switches, gesture events and
+Move/StopWithOnOff are unaffected. There is no Scenes client in this build.
+
+`single_click` adds enum value `0x04` to `genOnOffSwitchCfg` attribute `0xff05`.
+The legacy values and NVM layout are unchanged. Before downgrading, set the
+binding mode back to `short_press` (`0x03`): older firmware does not recognize
+the new mode and will not send its momentary On/Off commands while it is selected.
 
 ## Verification without hardware
 
 - Run `make tests` for the router/End Device stubs, including gesture timing,
-  per-endpoint settings, legacy NVM and the AVATTO detached/SHORT regression.
+  per-endpoint settings, legacy NVM, and AVATTO detached binding tests for both
+  `short_press` and `single_click`.
 - From the repository root, run `node tests/test_switch_gesture_converter.cjs`
   with `zigbee-herdsman-converters` 26.125.0 and `zigbee-herdsman` 11.2.0 on the
   Node module path (Zigbee2MQTT 2.14.3 dependencies).
 - With the Telink SDK/toolchain and `yq` installed, run
-  `make -f board.mk build-firmware BOARD=MODULE_AVATTO_TS0011 DEVICE_TYPE=end_device BIN_PATH=build/phase1-avatto`.
+  `make -f board.mk build-firmware BOARD=MODULE_AVATTO_TS0011 DEVICE_TYPE=end_device BIN_PATH=build/phase2-avatto`.
   This builds the binary without publishing an OTA or modifying the OTA index.
 
 These checks do not validate radio delivery, missed GPIO interrupts, or rollback

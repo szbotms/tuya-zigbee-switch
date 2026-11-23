@@ -84,10 +84,11 @@ const romasku = {
         enumLookup({
             name,
             endpointName,
-            lookup: { press_start: 1, short_press: 3, long_press: 2},
+            lookup: { press_start: 1, short_press: 3, long_press: 2, single_click: 4 },
             cluster: "genOnOffSwitchCfg",
             attribute: { ID: 0xff05, type: 0x30 }, // Enum8
-            description: "When turn on/off binded device",
+            description: "When to send On/Off commands to bound devices (momentary switches). " +
+                "short_press sends on each short release; single_click sends only for a confirmed single click.",
             entityCategory: "config",
         }),
     longPressDuration: (name, endpointName) =>

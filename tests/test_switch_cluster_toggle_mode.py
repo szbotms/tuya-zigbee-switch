@@ -14,6 +14,7 @@ from tests.zcl_consts import (
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_LONG,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_RISE,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT,
+    ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK,
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED,
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_LONG,
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_RISE,
@@ -153,6 +154,7 @@ def test_toggle_mode_offon_actions_relay_control(
         pytest.param(ZCL_ONOFF_CONFIGURATION_BINDED_MODE_RISE, id="rise"),
         pytest.param(ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT, id="short"),
         pytest.param(ZCL_ONOFF_CONFIGURATION_BINDED_MODE_LONG, id="long"),
+        pytest.param(ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK, id="single_click"),
     ],
 )
 def test_toggle_mode_toggle_actions_commands(
