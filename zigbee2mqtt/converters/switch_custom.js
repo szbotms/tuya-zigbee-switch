@@ -79,17 +79,36 @@ const romasku = {
             description: "Which internal relay it should trigger",
             entityCategory: "config",
         }),
-    bindedMode: (name, endpointName) =>
-        enumLookup({
+    bindedMode: (name, endpointName) => {
+        const extend = enumLookup({
             name,
             endpointName,
             lookup: { press_start: 1, short_press: 3, long_press: 2, single_click: 4 },
             cluster: "genOnOffSwitchCfg",
             attribute: { ID: 0xff05, type: 0x30 }, // Enum8
             description: "When to send On/Off commands to bound devices (momentary switches). " +
-                "short_press sends on each short release; single_click sends only for a confirmed single click.",
+                "short_press sends on each short release; single_click requires compatible firmware " +
+                "and sends only for a confirmed single click.",
             entityCategory: "config",
-        }),
+        });
+        const tz = extend.toZigbee[0];
+        const set = tz.convertSet;
+        tz.convertSet = async (entity, key, value, meta) => {
+            if (typeof value !== "string" || value.toLowerCase() !== "single_click") {
+                return set(entity, key, value, meta);
+            }
+
+            // Probe the actual endpoint on every opt-in, not cached state:
+            // a matched converter can serve different firmware versions.
+            const endpoint = meta.device.getEndpoint(meta.mapped.endpoint(meta.device)[endpointName]);
+            const support = await endpoint.read("genOnOffSwitchCfg", [0xff09]).catch(() => undefined);
+            if (support?.[0xff09] !== 1 && support?.[0xff09] !== true) {
+                throw new Error("Cannot verify single_click support; binding mode was not changed");
+            }
+            return set(endpoint, key, value, {...meta, endpoint_name: endpointName});
+        };
+        return extend;
+    },
     longPressDuration: (name, endpointName) =>
         numeric({
             name,

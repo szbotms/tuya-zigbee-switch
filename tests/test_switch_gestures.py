@@ -6,6 +6,7 @@ from client import Event, StubProc
 
 from tests.conftest import Device
 from tests.zcl_consts import (
+    ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_ACTIONS as ACTIONS,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_BINDING_MODE as BINDING_MODE,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_CONFIRM_RELEASE_MS as CONFIRM,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MAX_PRESS_COUNT as MAX_COUNT,
@@ -18,6 +19,7 @@ from tests.zcl_consts import (
     ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF,
     ZCL_CMD_LEVEL_STOP_WITH_ON_OFF,
     ZCL_CMD_ONOFF_OFF,
+    ZCL_CMD_ONOFF_ON,
     ZCL_CMD_ONOFF_TOGGLE,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK,
@@ -25,6 +27,8 @@ from tests.zcl_consts import (
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT,
     ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON,
     ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE,
+    ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_OPPOSITE,
+    ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_SYNC,
     ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY,
     ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY_NC,
     ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE,
@@ -244,6 +248,63 @@ def test_single_click_binding_mode_persists(device_config):
         assert device.read_zigbee_attr(1, SWITCH_CFG, BINDING_MODE) == "4"
         assert device.read_zigbee_attr(2, SWITCH_CFG, BINDING_MODE) == "3"
         assert Path("stub_nvm_data/item_04.bin").stat().st_size == 8
+
+
+def test_firmware_advertises_single_click_capability(device):
+    assert device.read_zigbee_attr(1, SWITCH_CFG, 0xFF09) == "1"
+
+
+@pytest.mark.parametrize("action,command", [
+    (ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_SYNC, ZCL_CMD_ONOFF_ON),
+    (ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_OPPOSITE, ZCL_CMD_ONOFF_OFF),
+])
+def test_single_click_snapshots_smart_action_after_local_release(device, relay_button_pair, action, command):
+    pair = relay_button_pair
+    ep = pair.switch_endpoint
+    setup_button(device, ep, 2)
+    device.zcl_switch_relay_mode_set(ep, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT)
+    device.zcl_switch_actions_set(ep, action)
+    device.zcl_switch_binding_mode_set(ep, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+    assert device.zcl_relay_get(pair.relay_endpoint) == "0"
+    device.click_button(pair.button_pin)
+    assert device.zcl_relay_get(pair.relay_endpoint) == "1"
+    assert not device.zcl_list_cmds(ep, ZCL_CLUSTER_ON_OFF)
+
+    device.zcl_relay_off(pair.relay_endpoint)
+    assert device.zcl_relay_get(pair.relay_endpoint) == "0"
+    device.step_time(200)
+    device.zcl_switch_get_multistate_value(ep)
+    assert [cmd.cmd for cmd in device.zcl_list_cmds(ep, ZCL_CLUSTER_ON_OFF)] == [command]
+
+
+@pytest.mark.parametrize("when", ["before_release", "after_release"])
+@pytest.mark.parametrize("change", ["no_op", "different", "different_without_callback"])
+def test_only_effective_binding_config_changes_cancel_pending_single(device, button_pin, when, change):
+    setup_button(device, 1, 2)
+    single = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK
+    device.zcl_switch_binding_mode_set(1, single)
+    reports = collect_reports(device.p)
+    device.press_button(button_pin)
+    if when == "after_release":
+        device.release_button(button_pin)
+        assert device.zcl_switch_get_multistate_value(1) == "0"
+
+    if change == "no_op":
+        device.zcl_switch_binding_mode_set(1, single)
+        device.zcl_switch_actions_set(1, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE)
+    else:
+        suffix = " no_callback" if change == "different_without_callback" else ""
+        # Model an effective write with no app hook (e.g. Telink Write Attributes Undivided).
+        assert device.p.exec(f"zcl_write 1 {SWITCH_CFG:x} {ACTIONS:x} {ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON}{suffix}").ok
+    if when == "before_release":
+        device.release_button(button_pin)
+
+    device.step_time(200)
+    assert device.zcl_switch_get_multistate_value(1) == "0"
+    assert reports == [(1, 5)]
+    assert [cmd.cmd for cmd in device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)] == (
+        [ZCL_CMD_ONOFF_TOGGLE] if change == "no_op" else []
+    )
 
 
 def test_config_writes_cancel_pending_confirmation(device, button_pin):

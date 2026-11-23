@@ -47,9 +47,21 @@ this mode. Local relay modes, physical toggle switches, gesture events and
 Move/StopWithOnOff are unaffected. There is no Scenes client in this build.
 
 `single_click` adds enum value `0x04` to `genOnOffSwitchCfg` attribute `0xff05`.
+The Zigbee2MQTT converter lists the option but will not write it unless a live
+read of the selected endpoint confirms support (read-only attribute `0xff09`).
 The legacy values and NVM layout are unchanged. Before downgrading, set the
-binding mode back to `short_press` (`0x03`): older firmware does not recognize
-the new mode and will not send its momentary On/Off commands while it is selected.
+binding mode back to `short_press` (`0x03`) and read it back: older firmware
+does not recognize the new mode and will not send its momentary On/Off commands
+while it is selected.
+
+For smart sync/opposite, the relay state used for the command is taken on short
+release, after the local relay action, not at the end of the confirmation window.
+If the effective binding settings change during confirmation, the firmware drops
+the pending command without suppressing an otherwise valid gesture report.
+
+Known inherited limitation: contact bounce close to the hold threshold can
+classify a hold as a short press. This affects both `short_press` and
+`single_click`; Phase 2 does not change the button debounce logic.
 
 ## Verification without hardware
 

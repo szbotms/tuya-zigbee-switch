@@ -77,6 +77,7 @@
 // 0xff06 is used by the proposed Level Move Mode attribute (#553).
 #define ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MAX_PRESS_COUNT       0xff07
 #define ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_CONFIRM_RELEASE_MS    0xff08
+#define ZCL_ATTR_ONOFF_CONFIGURATION_SINGLE_CLICK_SUPPORTED       0xff09
 
 
 // Multistate cluster

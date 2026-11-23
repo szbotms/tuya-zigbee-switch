@@ -14,7 +14,8 @@
 const uint8_t multistate_out_of_service = 0;
 const uint8_t multistate_flags          = 0;
 
-static const uint16_t no_gesture = 0;
+static const uint16_t no_gesture             = 0;
+static const uint8_t  single_click_supported = 1;
 
 #define MULTISTATE_NOT_PRESSED     0
 #define MULTISTATE_PRESS           1
@@ -32,6 +33,7 @@ const uint16_t        multistate_num_of_states = 13;
 #define DEFAULT_MAX_PRESS_COUNT       1
 #define DEFAULT_CONFIRM_RELEASE_MS    200
 #define MAX_CONFIRM_RELEASE_MS        2000
+#define NO_ONOFF_COMMAND              0xff
 
 extern zigbee_relay_cluster relay_clusters[];
 extern uint8_t relay_clusters_cnt;
@@ -41,7 +43,8 @@ extern uint8_t switch_clusters_cnt;
 void switch_cluster_on_button_press(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_release(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_long_press(zigbee_switch_cluster *cluster);
-void switch_cluster_binding_action_on(zigbee_switch_cluster *cluster);
+static uint8_t switch_cluster_resolve_binding_on(const zigbee_switch_cluster *cluster);
+static void switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id);
 static bool switch_cluster_has_valid_relay(
     const zigbee_switch_cluster *cluster);
 
@@ -104,12 +107,24 @@ static void report_gesture(zigbee_switch_cluster *cluster, uint16_t value) {
     }
 }
 
+static uint32_t binding_config(const zigbee_switch_cluster *cluster) {
+    return (uint32_t)cluster->binded_mode | ((uint32_t)cluster->action << 8) |
+           ((uint32_t)cluster->relay_index << 16) | ((uint32_t)cluster->relay_mode << 24);
+}
+
+static bool single_click_binding_is_current(const zigbee_switch_cluster *cluster) {
+    return cluster->single_click_binding_armed &&
+           cluster->single_click_binding_config == binding_config(cluster);
+}
+
 static void confirm_press(void *arg) {
     zigbee_switch_cluster *cluster = arg;
 
     if (cluster->press_count != 0) {
-        if (cluster->press_count == 1 && cluster->single_click_binding_armed) {
-            switch_cluster_binding_action_on(cluster);
+        // Recheck the live configuration even if the platform did not issue
+        // an attribute callback (e.g. Telink Write Attributes Undivided).
+        if (cluster->press_count == 1 && single_click_binding_is_current(cluster)) {
+            switch_cluster_send_binding_on(cluster, cluster->single_click_command);
         }
         report_gesture(cluster, gesture_press[cluster->press_count - 1]);
         cluster->press_count = 0;
@@ -214,11 +229,13 @@ void switch_cluster_add_to_endpoint(zigbee_switch_cluster *cluster,
                ZCL_DATA_TYPE_UINT8, ATTR_WRITABLE, cluster->max_press_count);
     SETUP_ATTR(9, ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_CONFIRM_RELEASE_MS,
                ZCL_DATA_TYPE_UINT16, ATTR_WRITABLE, cluster->confirm_release_ms);
+    SETUP_ATTR(10, ZCL_ATTR_ONOFF_CONFIGURATION_SINGLE_CLICK_SUPPORTED,
+               ZCL_DATA_TYPE_BOOLEAN, ATTR_READONLY, single_click_supported);
 
     // Configuration
     endpoint->clusters[endpoint->cluster_count].cluster_id =
         ZCL_CLUSTER_ON_OFF_SWITCH_CONFIG;
-    endpoint->clusters[endpoint->cluster_count].attribute_count = 10;
+    endpoint->clusters[endpoint->cluster_count].attribute_count = 11;
     endpoint->clusters[endpoint->cluster_count].attributes      = cluster->attr_infos;
     endpoint->clusters[endpoint->cluster_count].is_server       = 1;
     endpoint->cluster_count++;
@@ -321,51 +338,44 @@ void switch_cluster_relay_action_off(zigbee_switch_cluster *cluster) {
     }
 }
 
-// Send OnOff command to binded device based on ON position (position 1 in
-// ZCL docs)
-void switch_cluster_binding_action_on(zigbee_switch_cluster *cluster) {
-    if (hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED) {
-        return;
-    }
-
-    uint8_t cmd_id;
-
+static uint8_t switch_cluster_resolve_binding_on(const zigbee_switch_cluster *cluster) {
     switch (cluster->action) {
     case ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_ONOFF:
-        cmd_id = ZCL_CMD_ONOFF_ON;
-        break;
+        return ZCL_CMD_ONOFF_ON;
 
     case ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON:
-        cmd_id = ZCL_CMD_ONOFF_OFF;
-        break;
+        return ZCL_CMD_ONOFF_OFF;
 
     case ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE:
-        cmd_id = ZCL_CMD_ONOFF_TOGGLE;
-        break;
+        return ZCL_CMD_ONOFF_TOGGLE;
 
     case ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_SYNC:
     case ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_OPPOSITE:
-        if (!switch_cluster_has_valid_relay(cluster)) {
-            cmd_id = ZCL_CMD_ONOFF_TOGGLE;
-        } else {
-            zigbee_relay_cluster *relay_cluster =
-                &relay_clusters[cluster->relay_index - 1];
-            if (cluster->action ==
-                ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_SYNC)
-                cmd_id = (relay_cluster->relay->on) ? ZCL_CMD_ONOFF_ON
-                                                    : ZCL_CMD_ONOFF_OFF;
-            else
-                cmd_id = (relay_cluster->relay->on) ? ZCL_CMD_ONOFF_OFF
-                                                    : ZCL_CMD_ONOFF_ON;
+        if (switch_cluster_has_valid_relay(cluster)) {
+            bool relay_on = relay_clusters[cluster->relay_index - 1].relay->on;
+            bool sync     = cluster->action ==
+                            ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SMART_SYNC;
+            return relay_on == sync ? ZCL_CMD_ONOFF_ON : ZCL_CMD_ONOFF_OFF;
         }
-        break;
+        return ZCL_CMD_ONOFF_TOGGLE;
 
     default:
+        return NO_ONOFF_COMMAND;
+    }
+}
+
+static void switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id) {
+    if (cmd_id == NO_ONOFF_COMMAND ||
+        hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED) {
         return;
     }
-
     hal_zigbee_cmd c = build_onoff_cmd(cluster->endpoint, cmd_id);
     hal_zigbee_send_cmd_to_bindings(&c);
+}
+
+// Send OnOff command based on ON position (position 1 in ZCL docs).
+static void switch_cluster_binding_action_on(zigbee_switch_cluster *cluster) {
+    switch_cluster_send_binding_on(cluster, switch_cluster_resolve_binding_on(cluster));
 }
 
 // Send OnOff command to binded device based on OFF position (position 2 in
@@ -462,6 +472,8 @@ void switch_cluster_on_button_press(zigbee_switch_cluster *cluster) {
     if (cluster->press_count == 0) {
         cluster->single_click_binding_armed =
             cluster->binded_mode == ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK;
+        cluster->single_click_binding_config = binding_config(cluster);
+        cluster->single_click_command        = NO_ONOFF_COMMAND;
     }
     if (cluster->press_count < cluster->max_press_count) {
         cluster->press_count++;
@@ -513,6 +525,10 @@ void switch_cluster_on_button_release(zigbee_switch_cluster *cluster) {
         }
         if (cluster->binded_mode == ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT) {
             switch_cluster_binding_action_on(cluster);
+        } else if (cluster->press_count == 1 && single_click_binding_is_current(cluster)) {
+            // Resolve after the local relay action, just as SHORT does. The
+            // bound command must not depend on relay changes during the wait.
+            cluster->single_click_command = switch_cluster_resolve_binding_on(cluster);
         }
     } else {
         // This is end of long press, send zcl_level stop
@@ -610,14 +626,6 @@ void switch_cluster_on_write_attr(zigbee_switch_cluster *cluster,
         }
         return;
     }
-    // A delayed command must not apply a binding configuration written after
-    // the sequence started. Keep collecting/reporting the gesture itself.
-    if (attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_BINDING_MODE ||
-        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_ACTIONS ||
-        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_INDEX ||
-        attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_MODE) {
-        cluster->single_click_binding_armed = false;
-    }
     printf("Index at write attr: %d\r\n", cluster->switch_idx);
     if (attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_INDEX) {
         if (relay_clusters_cnt == 0) {
@@ -625,6 +633,9 @@ void switch_cluster_on_write_attr(zigbee_switch_cluster *cluster,
         } else if (cluster->relay_index < 1 || cluster->relay_index > relay_clusters_cnt) {
             cluster->relay_index = 1;
         }
+    }
+    if (!single_click_binding_is_current(cluster)) {
+        cluster->single_click_binding_armed = false;
     }
     if (attribute_id == ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MODE) {
         cancel_press_sequence(cluster);
