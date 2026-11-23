@@ -144,6 +144,7 @@ typedef enum {
     HAL_ZIGBEE_ERR_NOT_JOINED,
     HAL_ZIGBEE_ERR_BAD_ARG,
     HAL_ZIGBEE_ERR_SEND_FAILED,
+    HAL_ZIGBEE_ERR_NO_MATCHING_BINDING,
 } hal_zigbee_status_t;
 
 /**
@@ -152,6 +153,15 @@ typedef enum {
  * @return HAL_ZIGBEE_OK on success, error code otherwise
  */
 hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd);
+
+/** Send once to group_id, only if the source endpoint/cluster has exactly
+ * one binding and that binding targets this group (no unicast or fanout). */
+hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,
+                                                   uint16_t group_id);
+
+/** Whether the platform supports Scenes and has room for the final layout. */
+bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
+                                  unsigned outputs, unsigned attributes);
 
 /**
  * Send attribute report to bound devices (notify of state changes)

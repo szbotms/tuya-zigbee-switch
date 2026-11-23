@@ -89,6 +89,49 @@ void on_multi_press_reset(void *_, uint8_t press_count) {
     }
 }
 
+// Reserve space without changing the legacy layout on a full descriptor table.
+static void add_switch_scene_clients(uint8_t endpoint_count) {
+    if (!switch_clusters_cnt || endpoint_count > sizeof(endpoints) / sizeof(endpoints[0]) ||
+        !hal_zigbee_scene_clients_fit(endpoint_count, 0, 0, 0)) {
+        return;
+    }
+
+    unsigned used = 0, outputs = 0, attributes = 0;
+
+    for (unsigned i = 0; i < endpoint_count; ++i) {
+        const hal_zigbee_endpoint *ep = &endpoints[i];
+        used += ep->cluster_count;
+        if (used + switch_clusters_cnt > sizeof(clusters) / sizeof(clusters[0])) {
+            return;
+        }
+        for (unsigned j = 0; j < ep->cluster_count; ++j) {
+            outputs    += !ep->clusters[j].is_server;
+            attributes += ep->clusters[j].attribute_count;
+        }
+    }
+    unsigned total = used + switch_clusters_cnt;
+
+    if (!hal_zigbee_scene_clients_fit(endpoint_count, total,
+                                      outputs + switch_clusters_cnt,
+                                      attributes + switch_clusters_cnt * SWITCH_SCENE_ATTR_COUNT)) {
+        return;
+    }
+
+    // Repack from the end so adding one descriptor per switch cannot overwrite
+    // intervening relay/cover descriptors or change any endpoint numbering.
+    hal_zigbee_cluster *end = &clusters[total];
+    for (int i = endpoint_count - 1; i >= 0; --i) {
+        hal_zigbee_endpoint *ep = &endpoints[i];
+        bool is_switch          = i < switch_clusters_cnt;
+        end -= ep->cluster_count + is_switch;
+        memmove(end, ep->clusters, ep->cluster_count * sizeof(*end));
+        ep->clusters = end;
+        if (is_switch) {
+            switch_cluster_add_scenes(&switch_clusters[i], ep);
+        }
+    }
+}
+
 void parse_config() {
     device_config_read_from_nv();
     char *cursor = (char *)device_config_str.data;
@@ -388,6 +431,7 @@ void parse_config() {
                                       &endpoints[cover_base + index]);
     }
 
+    add_switch_scene_clients(total_endpoints);
     hal_zigbee_init(endpoints, total_endpoints);
     while (cursor != (char *)device_config_str.data) {
         cursor--;

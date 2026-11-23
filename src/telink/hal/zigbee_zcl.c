@@ -259,6 +259,58 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
     return HAL_ZIGBEE_OK;
 }
 
+bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
+                                  unsigned outputs, unsigned attributes) {
+    // Count the entire layout (including OTA and descriptor-only clients)
+    // conservatively against the SDK's registration table.
+    return endpoints <= MAX_ENDPOINTS && clusters <= ZCL_CLUSTER_NUM_MAX &&
+           outputs <= MAX_OUT_CLUSTERS && clusters - outputs <= MAX_IN_CLUSTERS &&
+           attributes <= MAX_ATTRS;
+}
+
+hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,
+                                                   uint16_t group_id) {
+    if (!cmd || group_id == 0 || group_id > ZCL_MAX_GROUP_ID) {
+        return HAL_ZIGBEE_ERR_BAD_ARG;
+    }
+    if (!zb_isDeviceJoinedNwk()) {
+        return HAL_ZIGBEE_ERR_NOT_JOINED;
+    }
+
+    // EntryNum counts used slots, not a contiguous prefix; removals leave holes.
+    const aps_binding_entry_t *entries = aps_bindingTblEntryGet();
+    bool found = false;
+    for (unsigned i = 0; i < APS_BINDING_TABLE_NUM; ++i) {
+        const aps_binding_entry_t *entry = &entries[i];
+        if (entry->used != 1 || entry->srcEp != cmd->endpoint ||
+            entry->clusterId != cmd->cluster_id) {
+            continue;
+        }
+        if (found || entry->dstAddrMode != APS_SHORT_GROUPADDR_NOEP ||
+            entry->groupAddr != group_id) {
+            return HAL_ZIGBEE_ERR_NO_MATCHING_BINDING;
+        }
+        found = true;
+    }
+    if (!found) {
+        return HAL_ZIGBEE_ERR_NO_MATCHING_BINDING;
+    }
+
+    epInfo_t dst;
+    TL_SETSTRUCTCONTENT(dst, 0);
+    dst.profileId         = cmd->profile_id;
+    dst.dstAddrMode       = APS_SHORT_GROUPADDR_NOEP;
+    dst.dstAddr.shortAddr = group_id;
+    // Explicit group addressing avoids unfiltered APS binding fanout.
+    status_t status = zcl_sendCmd(cmd->endpoint, &dst, cmd->cluster_id, cmd->command_id,
+                                  cmd->cluster_specific,
+                                  cmd->direction == HAL_ZIGBEE_DIR_CLIENT_TO_SERVER
+                                      ? ZCL_FRAME_CLIENT_SERVER_DIR : ZCL_FRAME_SERVER_CLIENT_DIR,
+                                  cmd->disable_default_rsp, cmd->manufacturer_code, ZCL_SEQ_NUM,
+                                  cmd->payload_len, (u8 *)cmd->payload);
+    return status == ZCL_STA_SUCCESS ? HAL_ZIGBEE_OK : HAL_ZIGBEE_ERR_SEND_FAILED;
+}
+
 hal_zigbee_status_t
 hal_zigbee_send_report_attr(uint8_t endpoint, uint16_t cluster_id,
                             uint16_t attr_id, uint8_t zcl_type_id,

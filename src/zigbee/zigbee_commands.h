@@ -23,6 +23,23 @@ static inline hal_zigbee_cmd build_onoff_cmd(uint8_t endpoint,
     return c;
 }
 
+static inline hal_zigbee_cmd build_recall_scene_cmd(uint8_t endpoint,
+                                                    uint16_t group_id, uint8_t scene_id,
+                                                    uint8_t payload[5]) {
+    payload[0] = (uint8_t)group_id;
+    payload[1] = (uint8_t)(group_id >> 8);
+    payload[2] = scene_id;
+    // Use the transition stored in the scene, matching Zigbee2MQTT Recall.
+    payload[3] = 0xff;
+    payload[4] = 0xff;
+    return (hal_zigbee_cmd) {
+               .endpoint            = endpoint, .profile_id = ZCL_HA_PROFILE,
+               .cluster_id          = ZCL_CLUSTER_SCENES, .command_id = ZCL_CMD_SCENES_RECALL,
+               .cluster_specific    = 1, .direction = HAL_ZIGBEE_DIR_CLIENT_TO_SERVER,
+               .disable_default_rsp = 1, .payload = payload, .payload_len = 5,
+    };
+}
+
 static inline hal_zigbee_cmd
 build_level_move_onoff_cmd(uint8_t endpoint, uint8_t dir, uint8_t rate) {
     static uint8_t buf[2];

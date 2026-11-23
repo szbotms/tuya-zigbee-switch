@@ -312,6 +312,23 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
            ? HAL_ZIGBEE_OK : HAL_ZIGBEE_ERR_SEND_FAILED;
 }
 
+bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
+                                  unsigned outputs, unsigned attributes) {
+    (void)endpoints;
+    (void)clusters;
+    (void)outputs;
+    (void)attributes;
+    return false;
+}
+
+hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,
+                                                   uint16_t group_id) {
+    // Scenes are not advertised on this platform pending strict binding validation.
+    (void)cmd;
+    (void)group_id;
+    return HAL_ZIGBEE_ERR_NO_MATCHING_BINDING;
+}
+
 hal_zigbee_status_t
 hal_zigbee_send_report_attr(uint8_t endpoint, uint16_t cluster_id,
                             uint16_t attr_id, uint8_t zcl_type_id,

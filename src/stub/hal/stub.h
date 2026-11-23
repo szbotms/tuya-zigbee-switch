@@ -22,7 +22,7 @@ void stub_nvm_set_data_dir(const char *dir);
 void stub_zigbee_enable_debug(int enable);
 void stub_zigbee_set_network_status(hal_zigbee_network_status_t status);
 void stub_zigbee_add_binding(uint16_t short_addr, uint8_t endpoint,
-                             uint16_t cluster_id);
+                             uint16_t cluster_id, bool is_group);
 void stub_zigbee_clear_bindings(void);
 hal_zigbee_endpoint *stub_zigbee_get_endpoints(uint8_t *count);
 hal_zigbee_cmd_result_t stub_zigbee_simulate_command(uint8_t endpoint,
