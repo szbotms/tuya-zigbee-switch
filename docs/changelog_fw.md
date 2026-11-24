@@ -14,6 +14,8 @@ Please describe what you are working on, under ## Upcoming
   with per-switch timing settings and Zigbee2MQTT action events.
 - Add opt-in `single_click` binding mode to send On/Off commands only on
   confirmed single clicks.
+- Add experimental, opt-in native Zigbee group scene recall on Telink
+  switches, and raise the Telink cluster descriptor limit to 48.
 
 ## 1.1.3
 

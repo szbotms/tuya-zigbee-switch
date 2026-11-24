@@ -61,6 +61,10 @@ def setup_button(device: Device, endpoint: int, limit: int):
     device.write_zigbee_attr(endpoint, SWITCH_CFG, MAX_COUNT, limit)
 
 
+def bind_onoff(device: Device, endpoint: int = 1, kind: str = "group"):
+    assert device.p.exec(f"bind {endpoint} {ZCL_CLUSTER_ON_OFF:x} 1234 {kind}").ok
+
+
 @pytest.mark.parametrize("clicks,limit,code", [(1, 2, 5), (2, 2, 7), (3, 3, 10), (5, 3, 10)])
 def test_finalized_click_report(device, button_pin, clicks, limit, code):
     setup_button(device, 1, limit)
@@ -168,6 +172,7 @@ def test_avatto_end_device_single_click_binding(limit, clicks, code):
         device.zcl_switch_relay_mode_set(1, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED)
         device.zcl_switch_actions_set(1, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE)
         device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+        bind_onoff(device)
         reports = collect_reports(proc)
 
         for _ in range(clicks):
@@ -200,6 +205,7 @@ def test_single_click_mode_preserves_nc_short_relay_and_configured_command(devic
     device.zcl_switch_relay_mode_set(ep, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT)
     device.zcl_switch_actions_set(ep, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE)
     device.zcl_switch_binding_mode_set(ep, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+    bind_onoff(device, ep)
 
     # Establish the NC released level first (stub fixture starts high).
     device.press_button(pair.button_pin)
@@ -228,6 +234,7 @@ def test_binding_mode_write_does_not_apply_to_pending_click(device, button_pin, 
     single = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK
     short = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT
     device.zcl_switch_binding_mode_set(1, short if enable_during_window else single)
+    bind_onoff(device)
     reports = collect_reports(device.p)
     device.click_button(button_pin)
     assert device.zcl_switch_get_multistate_value(1) == "0"
@@ -265,6 +272,7 @@ def test_single_click_snapshots_smart_action_after_local_release(device, relay_b
     device.zcl_switch_relay_mode_set(ep, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT)
     device.zcl_switch_actions_set(ep, action)
     device.zcl_switch_binding_mode_set(ep, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+    bind_onoff(device, ep, "unicast")
     assert device.zcl_relay_get(pair.relay_endpoint) == "0"
     device.click_button(pair.button_pin)
     assert device.zcl_relay_get(pair.relay_endpoint) == "1"
@@ -283,6 +291,7 @@ def test_only_effective_binding_config_changes_cancel_pending_single(device, but
     setup_button(device, 1, 2)
     single = ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK
     device.zcl_switch_binding_mode_set(1, single)
+    bind_onoff(device)
     reports = collect_reports(device.p)
     device.press_button(button_pin)
     if when == "after_release":
@@ -332,6 +341,7 @@ def test_config_writes_cancel_pending_confirmation(device, button_pin):
 def test_optional_timer_failure_discards_sequence(device, button_pin):
     setup_button(device, 1, 2)
     device.zcl_switch_binding_mode_set(1, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+    bind_onoff(device)
     reports = collect_reports(device.p)
     assert device.p.exec("task_reject 1").ok
     device.click_button(button_pin)

@@ -44,7 +44,7 @@ configured On/Off action (`toggle_simple` sends Toggle). When `max_press_count`
 is 1 there is no extra wait after release; for 2 or 3 it waits the configured
 confirmation window. Double/triple clicks and holds send no On/Off command in
 this mode. Local relay modes, physical toggle switches, gesture events and
-Move/StopWithOnOff are unaffected. There is no Scenes client in this build.
+Move/StopWithOnOff are unaffected.
 
 `single_click` adds enum value `0x04` to `genOnOffSwitchCfg` attribute `0xff05`.
 The Zigbee2MQTT converter lists the option but will not write it unless a live
@@ -62,6 +62,77 @@ the pending command without suppressing an otherwise valid gesture report.
 Known inherited limitation: contact bounce close to the hold threshold can
 classify a hold as a short press. This affects both `short_press` and
 `single_click`; Phase 2 does not change the button debounce logic.
+
+## Native scene recall (phase 3)
+
+Supported Telink switches advertise a `genScenes` **output** cluster. The
+switch does not store scenes: the lamps in a Zigbee group do. After loading
+the matching external converter and updating the switch firmware:
+
+1. Run Interview and Reconfigure on the switch. In Zigbee2MQTT, bind the
+   switch endpoint's `genScenes` cluster to **exactly one** Zigbee group. Do
+   not bind Scenes to the coordinator or directly to a device. Keep the
+   existing On/Off, Level Control and gesture reporting bindings.
+2. In the same Zigbee group, store the two scenes (`scene_store`) and verify
+   them with `scene_recall` in Zigbee2MQTT. For example, send
+   `{"scene_recall":1}` to `zigbee2mqtt/<group>/set`. Use known stable
+   brightness values on a no-neutral installation.
+3. On the switch's Exposes page, select `single_click` binding mode and set
+   the click limit to `3` for both double and triple. Set `scene_group_id_switch`
+   to the numeric Zigbee group ID, set `double_click_scene_id_switch` and
+   `triple_click_scene_id_switch` (defaults **1** and **2**), then set
+   `scene_enabled_switch` to true. Reads after writes confirm the applied value.
+   With MQTT `/set`, multiple Scenes fields can be written in one message, but
+   set the group ID before enabling recall; the writes are not atomic.
+
+Scene recall is disabled by default. A missing, mismatched, ambiguous or
+unicast Scenes binding causes no scene command to be sent. The destination
+group must match the Group ID in the RecallScene payload. Group ID `0` means
+unset; disable recall before clearing it. Scene IDs `0`–`255` are accepted.
+By default, single clicks send only the configured On/Off action if bound.
+See below for optional recall. The hold/release and Zigbee2MQTT
+actions are unchanged. Direct group recall does
+not require HA or Zigbee2MQTT to run after configuration, but the Zigbee mesh
+and the End Device's parent must remain available.
+
+### Optional single-click scene alongside Toggle
+
+With Scenes enabled, binding mode `single_click` and action `toggle_simple`,
+set `single_click_scene_id_switch` (default **0**) and turn on
+`single_click_scene_enabled_switch` (off by default). If the button has an
+On/Off binding, it submits Toggle before recalling the selected scene. Keep
+both bindings pointed at the same lamps when using both commands. Without an
+On/Off binding, the switch sends only RecallScene to the valid Scenes group.
+A missing or invalid Scenes binding does not stop Toggle.
+
+**Warning when using both commands:** create this scene with `scene_add` and
+**omit `state`**. Do not use a scene that stores `ON` or `OFF`, including one
+captured by `scene_store` that contains On/Off. Its recall can override Toggle
+and prevent the light from staying off or on. For example, where the target
+group supports both attributes:
+
+```json
+{"scene_add":{"ID":0,"brightness":140,"color_temp":370}}
+```
+
+Test both directions on the actual lamp. Toggle and RecallScene are separate
+Zigbee transmissions, not an atomic operation. Lamp firmware may ignore changes
+while off or apply the scene differently; some lamps may turn on even when
+`state` was omitted. Verify that a click from on actually leaves the lamp off,
+and disable this option if it does not. This does not change `color_temp_startup`.
+
+Silicon Labs builds and layouts without sufficient descriptor capacity do not
+advertise this feature. Telink supports up to 48 cluster descriptors in total;
+the separate limit of 128 application attributes still applies. A four-button,
+four-relay layout with Scenes uses 35 descriptors as an End Device (34 as a
+router), including the existing OTA client.
+
+The new per-switch scene record does not change the legacy relay or gesture
+NVM records. Earlier Phase 3 Scenes settings are read with single-click recall
+disabled. After a Scenes settings write, older firmware cannot read the new
+record: on downgrade, it may fall back to the older values if still present.
+Group 0/unicast scenes and multiple group targets are not
+supported. No default color-temperature logic is applied to Toggle.
 
 ## Verification without hardware
 

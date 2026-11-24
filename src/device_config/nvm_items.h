@@ -29,5 +29,6 @@
 #define NV_ITEM_POLL_CONTROL_CONFIG        34
 // Keep gesture settings separate so the legacy switch record retains its size.
 #define NV_ITEM_SWITCH_GESTURE_CONFIG(switch_idx)    (35 + (switch_idx))
+#define NV_ITEM_SWITCH_SCENE_CONFIG(switch_idx)      (35 + MAX_SWITCHES + (switch_idx))
 
 #endif /* DEVICE_CONFIG_NVM_ITEMS_H_ */

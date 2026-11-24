@@ -8,7 +8,7 @@ const {
     windowCovering,
 } = require("zigbee-herdsman-converters/lib/modernExtend");
 const {assertString} = require("zigbee-herdsman-converters/lib/utils");
-const {presets} = require("zigbee-herdsman-converters/lib/exposes");
+const {access, presets} = require("zigbee-herdsman-converters/lib/exposes");
 const reporting = require("zigbee-herdsman-converters/lib/reporting");
 const constants = require("zigbee-herdsman-converters/lib/constants");
 const Zcl = require('zigbee-herdsman').Zcl;
@@ -35,6 +35,76 @@ const switchActionSuffix = {
 };
 
 const romasku = {
+    sceneConfig: (switchNames) => {
+        const cluster = "genOnOffSwitchCfg";
+        const settings = {
+            scene_enabled: {id: 0xff0a, type: Zcl.DataType.BOOLEAN, description: "Enable bound scene recall (requires single_click binding mode and a matching group)."},
+            scene_group_id: {id: 0xff0b, type: Zcl.DataType.UINT16, max: 0xfff7, description: "Group ID of the sole Scenes binding (0 means unset; disable recall before clearing)."},
+            double_click_scene_id: {id: 0xff0c, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed double click."},
+            triple_click_scene_id: {id: 0xff0d, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed triple click."},
+            single_click_scene_enabled: {id: 0xff0e, type: Zcl.DataType.BOOLEAN, description: "Recall a scene on a confirmed single click in toggle_simple mode. If On/Off is bound, use a scene without On/Off state to avoid overriding Toggle."},
+            single_click_scene_id: {id: 0xff0f, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled when single-click scene recall is enabled."},
+        };
+        const supports = (ep) => ep?.supportsOutputCluster?.("genScenes");
+        const getEndpoint = (meta) => {
+            const name = meta.endpoint_name ?? (switchNames.length === 1 ? switchNames[0] : undefined);
+            const index = switchNames.indexOf(name);
+            const ep = index === -1 ? undefined : meta.device.getEndpoint(index + 1);
+            if (!supports(ep)) throw new Error("Select a switch endpoint that supports Scenes; re-interview after firmware upgrade");
+            return ep;
+        };
+        const decode = (value, max) => max === undefined ? Boolean(value) : value;
+        return {
+            isModernExtend: true,
+            exposes: [(device) => switchNames.flatMap((name, index) => {
+                if (!supports(device?.getEndpoint?.(index + 1))) return [];
+                return Object.entries(settings).map(([key, cfg]) => {
+                    const expose = cfg.max === undefined
+                        ? presets.binary(key, access.ALL, true, false)
+                        : presets.numeric(key, access.ALL).withValueMin(0).withValueMax(cfg.max).withValueStep(1);
+                    return expose.withEndpoint(name).withCategory("config").withDescription(cfg.description);
+                });
+            })],
+            fromZigbee: [{
+                cluster,
+                type: ["attributeReport", "readResponse"],
+                convert: (model, msg) => {
+                    const name = switchNames[msg.endpoint.ID - 1];
+                    if (!name || !supports(msg.endpoint)) return;
+                    const entries = Object.entries(settings).filter(([, cfg]) => msg.data[cfg.id] !== undefined);
+                    if (entries.length) return Object.fromEntries(entries.map(([key, cfg]) =>
+                        [`${key}_${name}`, decode(msg.data[cfg.id], cfg.max)]));
+                },
+            }],
+            // Zigbee2MQTT calls each converter at most once per endpoint in a /set.
+            toZigbee: Object.entries(settings).map(([key, {id, type, max}]) => ({
+                key: [key],
+                convertGet: async (entity, _key, meta) => {
+                    await getEndpoint(meta).read(cluster, [id]);
+                },
+                convertSet: async (entity, _key, value, meta) => {
+                    const ep = getEndpoint(meta);
+                    if (max === undefined ? typeof value !== "boolean" : !Number.isInteger(value) || value < 0 || value > max) {
+                        throw new Error(`Invalid ${key}`);
+                    }
+                    const current = await ep.read(cluster, [id]);
+                    if (current[id] === undefined) throw new Error("Firmware did not confirm support for Scenes configuration");
+                    await ep.write(cluster, {[id]: {value: Number(value), type}});
+                    const applied = await ep.read(cluster, [id]);
+                    if (applied[id] === undefined || decode(applied[id], max) !== value) {
+                        throw new Error(`${key} was not applied; check the group ID and disable recall before clearing it`);
+                    }
+                    return {state: {[key]: value}};
+                },
+            })),
+            configure: [async (device) => {
+                for (let i = 1; i <= switchNames.length; i++) {
+                    const ep = device.getEndpoint(i);
+                    if (supports(ep)) await ep.read(cluster, Object.values(settings).map(({id}) => id)).catch(() => {});
+                }
+            }],
+        };
+    },
     switchAction: (name, endpointName) =>
         enumLookup({
             name,
@@ -536,6 +606,7 @@ const definitions = [
             romasku.switchGestures({{device.switchNames | tojson }}),
             romasku.maxPressCount({{device.switchNames | tojson }}),
             romasku.confirmReleaseMs({{device.switchNames | tojson }}),
+            romasku.sceneConfig({{device.switchNames | tojson }}),
             {% endif %}
             {% for switchName in device.switchNames %}
             romasku.pressAction("{{switchName}}_press_action", "{{switchName}}"),

@@ -370,6 +370,39 @@ static int cmd_task_reject(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_bind(int argc, char **argv) {
+    uint8_t  ep;
+    uint16_t cluster, address;
+
+    if (argc != 5 || parse_u8_dec(argv[1], &ep) || parse_u16_hex(argv[2], &cluster) ||
+        parse_u16_hex(argv[3], &address) ||
+        (strcmp(argv[4], "group") != 0 && strcmp(argv[4], "unicast") != 0)) {
+        io_res_err("usage");
+        return -1;
+    }
+    stub_zigbee_add_binding(address, ep, cluster, strcmp(argv[4], "group") == 0);
+    io_res_ok("");
+    return 0;
+}
+
+static int cmd_zcl_dir(int argc, char **argv) {
+    uint8_t  ep, count;
+    uint16_t cluster;
+
+    if (argc != 3 || parse_u8_dec(argv[1], &ep) || parse_u16_hex(argv[2], &cluster)) {
+        io_res_err("usage");
+        return -1;
+    }
+    hal_zigbee_endpoint *endpoints = stub_zigbee_get_endpoints(&count);
+    hal_zigbee_cluster * c         = hal_zigbee_find_cluster(endpoints, count, ep, cluster);
+    if (!c) {
+        io_res_err("cluster_not_found");
+        return -1;
+    }
+    io_res_ok("server=%u", c->is_server);
+    return 0;
+}
+
 static int cmd_set_battery_voltage(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "Usage: set_battery_voltage <millivolts>\n");
@@ -406,6 +439,8 @@ static const SimpleReplCommand kCmds[] = {
     { "freeze_time",         cmd_freeze_time         },
     { "step_time",           cmd_step_time           },
     { "task_reject",         cmd_task_reject         },
+    { "bind",                cmd_bind                },
+    { "zcl_dir",             cmd_zcl_dir             },
     { "set_battery_voltage", cmd_set_battery_voltage },
     { "q",                   cmd_quit                },
     { "quit",                cmd_quit                },

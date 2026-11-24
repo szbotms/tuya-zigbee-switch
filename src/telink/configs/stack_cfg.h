@@ -1,6 +1,8 @@
 #ifndef _STACK_CFG_H_
 #define _STACK_CFG_H_
 
+#include "hal/zigbee_limits.h"
+
 /*
  * Basic Stack Configuration
  */
@@ -20,7 +22,7 @@
  */
 
 /* ZCL: Maximum number of clusters (in + out cluster count) */
-#define ZCL_CLUSTER_NUM_MAX        32
+#define ZCL_CLUSTER_NUM_MAX        HAL_ZIGBEE_MAX_CLUSTERS
 
 /* ZCL: Maximum number of reporting table entries */
 #define ZCL_REPORTING_TABLE_NUM    12

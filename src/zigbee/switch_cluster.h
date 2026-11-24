@@ -16,6 +16,17 @@ typedef struct {
     uint8_t  binded_mode;
 } zigbee_switch_cluster_config;
 
+#define SWITCH_SCENE_ATTR_COUNT    6
+
+typedef struct {
+    uint16_t group_id;
+    uint8_t  enabled;
+    uint8_t  double_id;
+    uint8_t  triple_id;
+    uint8_t  single_enabled;
+    uint8_t  single_id;
+} switch_scene_config;
+
 typedef struct {
     uint8_t              switch_idx;
     uint8_t              endpoint;
@@ -25,7 +36,7 @@ typedef struct {
     uint8_t              relay_index;
     uint8_t              binded_mode;
     button_t *           button;
-    hal_zigbee_attribute attr_infos[11];
+    hal_zigbee_attribute attr_infos[11 + SWITCH_SCENE_ATTR_COUNT];
     uint16_t             multistate_state;
     hal_zigbee_attribute multistate_attr_infos[5];
     uint8_t              level_move_rate;
@@ -40,10 +51,16 @@ typedef struct {
     bool                 single_click_binding_armed;
     uint8_t              single_click_command;
     uint32_t             single_click_binding_config;
+    switch_scene_config  scenes;
+    switch_scene_config  saved_scenes;
+    bool                 scene_client;
+    bool                 scene_armed;
 } zigbee_switch_cluster;
 
 void switch_cluster_add_to_endpoint(zigbee_switch_cluster *cluster,
                                     hal_zigbee_endpoint *endpoint);
+void switch_cluster_add_scenes(zigbee_switch_cluster *cluster,
+                               hal_zigbee_endpoint *endpoint);
 
 void switch_cluster_callback_attr_write_trampoline(uint8_t endpoint,
                                                    uint16_t attribute_id);

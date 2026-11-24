@@ -13,6 +13,9 @@
 #define ZCL_CLUSTER_MULTISTATE_INPUT_BASIC    0x0012
 #define ZCL_CLUSTER_LEVEL_CONTROL             0x0008
 #define ZCL_CLUSTER_GROUPS                    0x0004
+#define ZCL_CLUSTER_SCENES                    0x0005
+#define ZCL_CMD_SCENES_RECALL                 0x05
+#define ZCL_MAX_GROUP_ID                      0xfff7
 #define ZCL_CLUSTER_OTA_BOOTLOAD              0x0019
 #define ZCL_CLUSTER_WINDOW_COVERING           0x0102
 #define ZCL_CLUSTER_COVER_SWITCH_CONFIG       0xFC01
@@ -78,6 +81,12 @@
 #define ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_MAX_PRESS_COUNT       0xff07
 #define ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_CONFIRM_RELEASE_MS    0xff08
 #define ZCL_ATTR_ONOFF_CONFIGURATION_SINGLE_CLICK_SUPPORTED       0xff09
+#define ZCL_ATTR_SWITCH_SCENES_ENABLED                            0xff0a
+#define ZCL_ATTR_SWITCH_SCENES_GROUP_ID                           0xff0b
+#define ZCL_ATTR_SWITCH_SCENES_DOUBLE_ID                          0xff0c
+#define ZCL_ATTR_SWITCH_SCENES_TRIPLE_ID                          0xff0d
+#define ZCL_ATTR_SWITCH_SCENES_SINGLE_ENABLED                     0xff0e
+#define ZCL_ATTR_SWITCH_SCENES_SINGLE_ID                          0xff0f
 
 
 // Multistate cluster

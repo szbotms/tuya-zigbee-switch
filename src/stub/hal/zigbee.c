@@ -1,5 +1,7 @@
 #include "hal/zigbee.h"
+#include "hal/zigbee_limits.h"
 #include "stub/machine_io.h"
+#include "zigbee/consts.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +25,7 @@ typedef struct {
     uint16_t short_addr;
     uint8_t  endpoint;
     uint16_t cluster_id;
+    bool     is_group;
 } stub_binding_t;
 
 static hal_zigbee_endpoint *endpoints             = NULL;
@@ -196,6 +199,55 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
     return HAL_ZIGBEE_OK;
 }
 
+bool hal_zigbee_has_binding(uint8_t endpoint, uint16_t cluster_id) {
+    for (int i = 0; i < binding_count; ++i) {
+        if (bindings[i].endpoint == endpoint && bindings[i].cluster_id == cluster_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
+                                  unsigned outputs, unsigned attributes) {
+    // Exercise the Telink descriptor limits in the simulator.
+    return endpoints <= 8 && clusters <= HAL_ZIGBEE_MAX_CLUSTERS &&
+           outputs <= 32 && clusters - outputs <= 32 && attributes <= 128;
+}
+
+hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,
+                                                   uint16_t group_id) {
+    if (!cmd || group_id == 0 || group_id > ZCL_MAX_GROUP_ID) {
+        return HAL_ZIGBEE_ERR_BAD_ARG;
+    }
+    if (network_status != HAL_ZIGBEE_NETWORK_JOINED) {
+        return HAL_ZIGBEE_ERR_NOT_JOINED;
+    }
+
+    bool found = false;
+    for (int i = 0; i < binding_count; ++i) {
+        if (bindings[i].endpoint != cmd->endpoint || bindings[i].cluster_id != cmd->cluster_id) {
+            continue;
+        }
+        if (found || !bindings[i].is_group || bindings[i].short_addr != group_id) {
+            return HAL_ZIGBEE_ERR_NO_MATCHING_BINDING;
+        }
+        found = true;
+    }
+    if (!found) {
+        return HAL_ZIGBEE_ERR_NO_MATCHING_BINDING;
+    }
+
+    char buffer[cmd->payload_len * 2 + 1];
+    bytes_to_hexstr(cmd->payload, cmd->payload_len, buffer);
+    io_evt(
+        "zcl_cmd_send ep=%u cluster=0x%04X cmd=0x%02X len=%u data_hex=%s group=0x%04X profile=0x%04X specific=%u direction=%u no_default_response=%u manufacturer=0x%04X",
+        cmd->endpoint, cmd->cluster_id, cmd->command_id, cmd->payload_len, buffer,
+        group_id, cmd->profile_id, cmd->cluster_specific, cmd->direction,
+        cmd->disable_default_rsp, cmd->manufacturer_code);
+    return HAL_ZIGBEE_OK;
+}
+
 hal_zigbee_status_t
 hal_zigbee_send_report_attr(uint8_t endpoint, uint16_t cluster_id,
                             uint16_t attr_id, uint8_t zcl_type_id,
@@ -235,7 +287,7 @@ void stub_zigbee_set_network_status(hal_zigbee_network_status_t status) {
 }
 
 void stub_zigbee_add_binding(uint16_t short_addr, uint8_t endpoint,
-                             uint16_t cluster_id) {
+                             uint16_t cluster_id, bool is_group) {
     if (binding_count >= MAX_BINDINGS) {
         io_log("ZIGBEE", "Cannot add binding - table full");
         return;
@@ -244,6 +296,7 @@ void stub_zigbee_add_binding(uint16_t short_addr, uint8_t endpoint,
     bindings[binding_count].short_addr = short_addr;
     bindings[binding_count].endpoint   = endpoint;
     bindings[binding_count].cluster_id = cluster_id;
+    bindings[binding_count].is_group   = is_group;
     binding_count++;
 
     io_log("ZIGBEE", "Added binding: addr=0x%04x, ep=%d, cluster=0x%04x",
