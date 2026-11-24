@@ -25,7 +25,7 @@ typedef struct {
     uint8_t              relay_index;
     uint8_t              binded_mode;
     button_t *           button;
-    hal_zigbee_attribute attr_infos[10];
+    hal_zigbee_attribute attr_infos[11];
     uint16_t             multistate_state;
     hal_zigbee_attribute multistate_attr_infos[5];
     uint8_t              level_move_rate;
@@ -37,6 +37,9 @@ typedef struct {
     uint8_t              max_press_count;
     uint8_t              saved_max_press_count;
     uint8_t              press_count;
+    bool                 single_click_binding_armed;
+    uint8_t              single_click_command;
+    uint32_t             single_click_binding_config;
 } zigbee_switch_cluster;
 
 void switch_cluster_add_to_endpoint(zigbee_switch_cluster *cluster,

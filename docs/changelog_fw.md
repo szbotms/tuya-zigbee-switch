@@ -12,6 +12,8 @@ Please describe what you are working on, under ## Upcoming
 
 - Add opt-in single-, double-, and triple-click detection for momentary switches,
   with per-switch timing settings and Zigbee2MQTT action events.
+- Add opt-in `single_click` binding mode to send On/Off commands only on
+  confirmed single clicks.
 
 ## 1.1.3
 

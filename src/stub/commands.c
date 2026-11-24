@@ -179,9 +179,9 @@ static int cmd_zcl_read(int argc, char **argv) {
 }
 
 static int cmd_zcl_write(int argc, char **argv) {
-    if (argc != 5) {
+    if (argc != 5 && (argc != 6 || strcmp(argv[5], "no_callback") != 0)) {
         fprintf(stderr,
-                "Usage: zcl_write <ep:dec> <cluster:hex> <attr:hex> <value>\n");
+                "Usage: zcl_write <ep:dec> <cluster:hex> <attr:hex> <value> [no_callback]\n");
         io_res_err("usage");
         return -1;
     }
@@ -211,7 +211,9 @@ static int cmd_zcl_write(int argc, char **argv) {
         return -1;
     }
 
-    stub_simulate_zigbee_attribute_write(ep, cl, at);
+    if (argc == 5) {
+        stub_simulate_zigbee_attribute_write(ep, cl, at);
+    }
     io_res_ok("ep=%d cluster=0x%04X attr=0x%04X value=%s", ep, cl, at, argv[4]);
 
     return 0;

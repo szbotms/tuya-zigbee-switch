@@ -27,4 +27,12 @@ In Zigbee2MQTT, the diagnostic field `switch_press_action_switch` shows the curr
 
 ## How multi-click affects bindings
 
-Multi-click reporting does not change local relay behavior or when the switch sends Zigbee commands to bound devices. With `short_press` binding mode and `toggle_simple` action, a double click reports one `switch_double` event but still sends two Toggle commands, one per short release. A bound light can therefore briefly change state and then return to its original state.
+Multi-click reporting does not change local relay behavior. In the default `short_press` binding mode, the switch still sends an On/Off command on each short release. With `toggle_simple`, a double click reports one `switch_double` event in Zigbee2MQTT but sends two Toggle commands, so a bound light can briefly change state and then return to its original state.
+
+### Send On/Off only on confirmed single clicks
+
+For momentary switches, select `single_click` as the binding mode (`switch_binded_mode_switch` in Zigbee2MQTT). The switch sends the configured On/Off action only for a confirmed single click. Recognized double and triple clicks and holds do not send On/Off commands in this mode. Hold/release dimming is unchanged.
+
+Set the click limit to **2** for double clicks or **3** for triple clicks. With the default limit of **1**, there is no extra confirmation delay, so two quick clicks can still send two On/Off commands.
+
+In the smart sync and smart opposite modes, the switch uses the local relay state at short release, not at the end of the confirmation window. Before downgrading to firmware that does not support `single_click`, switch back to `short_press` so bound On/Off commands continue to work.

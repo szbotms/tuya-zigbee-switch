@@ -70,6 +70,54 @@ async function verifyConfig() {
             .map((c) => c.convert(model, msg, undefined, {}, meta));
         assert.deepEqual(outputs.filter(Boolean), [{[`${name}_switch`]: value}]);
     }
+
+    const key = "switch_binded_mode";
+    const property = `${key}_switch`;
+    const bindingModes = {press_start: 1, long_press: 2, short_press: 3, single_click: 4};
+    assert.deepEqual(new Set(model.exposes.find((e) => e.property === property).values), new Set(Object.keys(bindingModes)));
+    const tz = model.toZigbee.find((c) => c.key.includes(key));
+    for (const [name, value] of Object.entries(bindingModes)) {
+        let probes = 0;
+        const endpoint = {
+            ID: 1,
+            write: async (cluster, payload) => assert.deepEqual([cluster, payload], ["genOnOffSwitchCfg", {0xff05: {value, type: 0x30}}]),
+            read: async (cluster, attrs) => {
+                assert.equal(cluster, "genOnOffSwitchCfg");
+                if (attrs[0] === 0xff09) {
+                    probes++;
+                    return {0xff09: true};
+                }
+                assert.deepEqual(attrs, [0xff05]);
+            },
+        };
+        device.getEndpoint = (id) => {
+            assert.equal(id, 1);
+            return endpoint;
+        };
+        await tz.convertSet(endpoint, key, name, meta);
+        assert.equal(probes, name === "single_click" ? 1 : 0);
+        await tz.convertGet(endpoint, key, meta);
+        const msg = {endpoint, data: {0xff05: value}, type: "readResponse"};
+        const outputs = model.fromZigbee.filter((c) => c.cluster === "genOnOffSwitchCfg" && c.type.includes(msg.type))
+            .map((c) => c.convert(model, msg, undefined, {}, meta));
+        assert.deepEqual(outputs.filter(Boolean), [{[property]: name}]);
+    }
+
+    for (const read of [async () => { throw new Error("Unsupported attribute"); }, async () => ({}), async () => ({0xff09: false})]) {
+        const endpoint = {read, write: async () => assert.fail("unsupported firmware was written")};
+        device.getEndpoint = () => endpoint;
+        await assert.rejects(tz.convertSet(endpoint, key, "single_click", meta), /Cannot verify single_click support/);
+    }
+    // Even a previously successful capability probe must not survive a downgrade.
+    let installed = true;
+    const endpoint = {
+        read: async () => installed ? {0xff09: 1} : {},
+        write: async () => assert.equal(installed, true),
+    };
+    device.getEndpoint = () => endpoint;
+    await tz.convertSet(endpoint, key, "single_click", meta);
+    installed = false;
+    await assert.rejects(tz.convertSet(endpoint, key, "single_click", meta), /Cannot verify single_click support/);
 }
 
 verifyConfig().then(() => console.log("Switch gesture converter checks passed"), (error) => {
