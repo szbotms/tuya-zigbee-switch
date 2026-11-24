@@ -68,7 +68,9 @@ classify a hold as a short press. This affects both `short_press` and
 - Run `make tests` for the router/End Device stubs, including gesture timing,
   per-endpoint settings, legacy NVM, and AVATTO detached binding tests for both
   `short_press` and `single_click`.
-- From the repository root, run `node tests/test_switch_gesture_converter.cjs`
+- From the repository root, run `make tools/update_converters` first: the test
+  loads the generated `switch_custom.js`, which is not updated in the code PR.
+  Then run `node tests/test_switch_gesture_converter.cjs`
   with `zigbee-herdsman-converters` 26.125.0 and `zigbee-herdsman` 11.2.0 on the
   Node module path (Zigbee2MQTT 2.14.3 dependencies).
 - With the Telink SDK/toolchain and `yq` installed, run
