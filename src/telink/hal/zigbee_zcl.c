@@ -248,15 +248,14 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
 
     dstEpInfo.profileId   = HA_PROFILE_ID;
     dstEpInfo.dstAddrMode = APS_DSTADDR_EP_NOTPRESETNT;
-    zcl_sendCmd(cmd->endpoint, &dstEpInfo, cmd->cluster_id, cmd->command_id,
-                cmd->cluster_specific,
-                cmd->direction == HAL_ZIGBEE_DIR_CLIENT_TO_SERVER
-                  ? ZCL_FRAME_CLIENT_SERVER_DIR
-                  : ZCL_FRAME_SERVER_CLIENT_DIR,
-                cmd->disable_default_rsp, cmd->manufacturer_code, ZCL_SEQ_NUM,
-                cmd->payload_len, (u8 *)cmd->payload);
-
-    return HAL_ZIGBEE_OK;
+    status_t status = zcl_sendCmd(cmd->endpoint, &dstEpInfo, cmd->cluster_id, cmd->command_id,
+                                  cmd->cluster_specific,
+                                  cmd->direction == HAL_ZIGBEE_DIR_CLIENT_TO_SERVER
+                                    ? ZCL_FRAME_CLIENT_SERVER_DIR
+                                    : ZCL_FRAME_SERVER_CLIENT_DIR,
+                                  cmd->disable_default_rsp, cmd->manufacturer_code, ZCL_SEQ_NUM,
+                                  cmd->payload_len, (u8 *)cmd->payload);
+    return status == ZCL_STA_SUCCESS ? HAL_ZIGBEE_OK : HAL_ZIGBEE_ERR_SEND_FAILED;
 }
 
 bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,

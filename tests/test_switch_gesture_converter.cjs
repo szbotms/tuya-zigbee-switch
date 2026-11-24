@@ -124,7 +124,7 @@ async function verifyConfig() {
 async function verifyScenes() {
     const scenes = model.toZigbee.find((c) => c.key.includes("scene_enabled"));
     const prefix = "genOnOffSwitchCfg";
-    const attrs = {0xff0a: 0, 0xff0b: 0, 0xff0c: 1, 0xff0d: 2};
+    const attrs = {0xff0a: 0, 0xff0b: 0, 0xff0c: 1, 0xff0d: 2, 0xff0e: 0, 0xff0f: 0};
     const writes = [];
     let sceneClient = true;
     let rejectWrite = false;
@@ -149,6 +149,8 @@ async function verifyScenes() {
         ["double_click_scene_id", 0, 0xff0c, 0x20],
         ["triple_click_scene_id", 255, 0xff0d, 0x20],
         ["scene_enabled", true, 0xff0a, 0x10],
+        ["single_click_scene_id", 255, 0xff0f, 0x20],
+        ["single_click_scene_enabled", true, 0xff0e, 0x10],
     ]) {
         assert(properties().includes(`${key}_switch`));
         assert.deepEqual(await scenes.convertSet(ep, key, value, meta), {state: {[key]: value}});
@@ -162,13 +164,16 @@ async function verifyScenes() {
     await assert.rejects(scenes.convertSet(ep, "scene_group_id", 0xfff8, meta), /Invalid scene_group_id/);
     await assert.rejects(scenes.convertSet(ep, "double_click_scene_id", 256, meta), /Invalid double_click_scene_id/);
     await assert.rejects(scenes.convertSet(ep, "scene_enabled", 1, meta), /Invalid scene_enabled/);
+    await assert.rejects(scenes.convertSet(ep, "single_click_scene_id", 256, meta), /Invalid single_click_scene_id/);
     const original = writes.length;
     sceneClient = false;
     assert(!properties().includes("scene_enabled_switch"));
     await assert.rejects(scenes.convertSet(ep, "scene_enabled", false, meta), /supports Scenes/);
     sceneClient = true;
     delete attrs[0xff0c];
+    delete attrs[0xff0e];
     await assert.rejects(scenes.convertSet(ep, "double_click_scene_id", 1, meta), /did not confirm support/);
+    await assert.rejects(scenes.convertSet(ep, "single_click_scene_enabled", true, meta), /did not confirm support/);
     assert.equal(writes.length, original);
     rejectWrite = true;
     await assert.rejects(scenes.convertSet(ep, "scene_group_id", 0, meta), /was not applied/);

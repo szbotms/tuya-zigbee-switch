@@ -16,13 +16,15 @@ typedef struct {
     uint8_t  binded_mode;
 } zigbee_switch_cluster_config;
 
-#define SWITCH_SCENE_ATTR_COUNT    4
+#define SWITCH_SCENE_ATTR_COUNT    6
 
 typedef struct {
     uint16_t group_id;
     uint8_t  enabled;
     uint8_t  double_id;
     uint8_t  triple_id;
+    uint8_t  single_enabled;
+    uint8_t  single_id;
 } switch_scene_config;
 
 typedef struct {

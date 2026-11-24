@@ -11,14 +11,17 @@ from tests.zcl_consts import (
     ZCL_CLUSTER_ON_OFF_SWITCH_CONFIG as SWITCH_CFG,
     ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF,
     ZCL_CMD_LEVEL_STOP_WITH_ON_OFF,
+    ZCL_CMD_ONOFF_ON,
     ZCL_CMD_ONOFF_TOGGLE,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT,
     ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK,
     ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED,
+    ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_ONOFF,
 )
 
 SCENES = 0x0005
 ENABLED, GROUP, DOUBLE, TRIPLE = range(0xFF0A, 0xFF0E)
+SINGLE_ENABLED, SINGLE = 0xFF0E, 0xFF0F
 AVATTO = "hbxsdd6k;TS0011-avatto;BB4u;LB5;SC0u;RC2;"
 
 
@@ -123,6 +126,59 @@ def test_scene_recall_skips_nonmatching_target_without_losing_action(device, but
     assert reports == [(1, 7)]
     assert not device.zcl_list_cmds(1, SCENES)
     assert len(device.zcl_list_cmds(1, ZCL_CLUSTER_ON_OFF)) == (2 if target == "legacy_short" else 0)
+
+
+@pytest.mark.parametrize("limit", [1, 3])
+@pytest.mark.parametrize("scenario", ["scene_zero", "custom_scene", "no_scene_binding", "master_disabled", "not_toggle"])
+def test_single_click_scene_is_optional_and_follows_toggle(device, button_pin, limit, scenario):
+    set_scenes(device, enabled=int(scenario != "master_disabled"))
+    setup_button(device, 1, limit)
+    device.write_zigbee_attr(1, SWITCH_CFG, SINGLE_ENABLED, 1)
+    if scenario == "custom_scene":
+        device.write_zigbee_attr(1, SWITCH_CFG, SINGLE, 255)
+    if scenario == "not_toggle":
+        device.zcl_switch_actions_set(1, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_ONOFF)
+    if scenario != "no_scene_binding":
+        bind(device)
+    reports = collect_reports(device.p)
+
+    click_sequence(device, button_pin, 1)
+    if limit > 1:
+        assert device.zcl_list_cmds(1) == [] and reports == []
+        finish_sequence(device)
+
+    onoff_command = ZCL_CMD_ONOFF_ON if scenario == "not_toggle" else ZCL_CMD_ONOFF_TOGGLE
+    expected = [(ZCL_CLUSTER_ON_OFF, onoff_command, b"")]
+    if scenario in {"scene_zero", "custom_scene"}:
+        scene = 255 if scenario == "custom_scene" else 0
+        expected.append((SCENES, 0x05, bytes([0x34, 0x12, scene, 0xFF, 0xFF])))
+    assert [(cmd.cluster, cmd.cmd, cmd.data) for cmd in device.zcl_list_cmds(1)] == expected
+    assert reports == [(1, 5)]
+
+
+def test_single_click_config_preserves_v1_scenes_and_persists(device_config):
+    legacy = Path("stub_nvm_data/item_28.bin")
+    legacy.parent.mkdir(exist_ok=True)
+    legacy_data = bytes([1, 1, 0x34, 0x12, 7, 8])
+    legacy.write_bytes(legacy_data)
+    with StubProc(device_config=device_config) as proc:
+        device = Device(proc)
+        assert device.read_zigbee_attr(1, SWITCH_CFG, ENABLED) == "1"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, GROUP) == "4660"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, DOUBLE) == "7"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, TRIPLE) == "8"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, SINGLE_ENABLED) == "0"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, SINGLE) == "0"
+        assert legacy.read_bytes() == legacy_data
+        device.write_zigbee_attr(1, SWITCH_CFG, SINGLE, 42)
+        device.write_zigbee_attr(1, SWITCH_CFG, SINGLE_ENABLED, 1)
+
+    with StubProc(device_config=device_config) as proc:
+        device = Device(proc)
+        assert device.read_zigbee_attr(1, SWITCH_CFG, SINGLE) == "42"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, SINGLE_ENABLED) == "1"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, DOUBLE) == "7"
+        assert device.read_zigbee_attr(1, SWITCH_CFG, TRIPLE) == "8"
 
 
 @pytest.mark.parametrize("writes", [[(DOUBLE, 9)], [(ENABLED, 0), (ENABLED, 1)], [(DOUBLE, 1)]])

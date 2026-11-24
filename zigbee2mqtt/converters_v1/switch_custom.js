@@ -40,6 +40,8 @@ const romasku = {
             scene_group_id: {id: 0xff0b, type: Zcl.DataType.UINT16, max: 0xfff7, description: "Group ID of the sole Scenes binding (0 means unset; disable recall before clearing)."},
             double_click_scene_id: {id: 0xff0c, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed double click."},
             triple_click_scene_id: {id: 0xff0d, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed triple click."},
+            single_click_scene_enabled: {id: 0xff0e, type: Zcl.DataType.BOOLEAN, description: "Also recall a scene after the single-click Toggle. Warning: use a scene without On/Off state, or it may override the Toggle."},
+            single_click_scene_id: {id: 0xff0f, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled after Toggle when single-click scene recall is enabled."},
         };
         const supports = (ep) => ep?.supportsOutputCluster?.("genScenes");
         const getEndpoint = (meta) => {

@@ -34,7 +34,8 @@ const uint16_t        multistate_num_of_states = 13;
 #define DEFAULT_CONFIRM_RELEASE_MS    200
 #define MAX_CONFIRM_RELEASE_MS        2000
 #define NO_ONOFF_COMMAND              0xff
-#define SCENE_CONFIG_VERSION          1
+#define SCENE_CONFIG_VERSION          2
+#define SCENE_CONFIG_V1_SIZE          6
 
 extern zigbee_relay_cluster relay_clusters[];
 extern uint8_t relay_clusters_cnt;
@@ -45,7 +46,7 @@ void switch_cluster_on_button_press(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_release(zigbee_switch_cluster *cluster);
 void switch_cluster_on_button_long_press(zigbee_switch_cluster *cluster);
 static uint8_t switch_cluster_resolve_binding_on(const zigbee_switch_cluster *cluster);
-static void switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id);
+static bool switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id);
 static bool switch_cluster_has_valid_relay(
     const zigbee_switch_cluster *cluster);
 
@@ -120,25 +121,35 @@ static bool single_click_binding_is_current(const zigbee_switch_cluster *cluster
 
 static bool same_scenes(const switch_scene_config *a, const switch_scene_config *b) {
     return a->group_id == b->group_id && a->enabled == b->enabled &&
-           a->double_id == b->double_id && a->triple_id == b->triple_id;
+           a->double_id == b->double_id && a->triple_id == b->triple_id &&
+           a->single_enabled == b->single_enabled && a->single_id == b->single_id;
 }
 
 static bool valid_scenes(const switch_scene_config *config) {
-    return config->enabled <= 1 && config->group_id <= ZCL_MAX_GROUP_ID &&
+    return config->enabled <= 1 && config->single_enabled <= 1 &&
+           config->group_id <= ZCL_MAX_GROUP_ID &&
            (!config->enabled || config->group_id != 0);
 }
 
 static void load_scenes(zigbee_switch_cluster *cluster) {
-    uint8_t data[6];
+    uint8_t data[8];
+    uint8_t item = NV_ITEM_SWITCH_SCENE_CONFIG(cluster->switch_idx);
 
     cluster->scenes = (switch_scene_config) { .double_id = 1, .triple_id = 2 };
-    if (hal_nvm_read(NV_ITEM_SWITCH_SCENE_CONFIG(cluster->switch_idx), sizeof(data), data) ==
-        HAL_NVM_SUCCESS && data[0] == SCENE_CONFIG_VERSION) {
+    hal_nvm_status_t status  = hal_nvm_read(item, sizeof(data), data);
+    bool             current = status == HAL_NVM_SUCCESS && data[0] == SCENE_CONFIG_VERSION;
+    bool             legacy  = !current && status != HAL_NVM_NOT_FOUND &&
+                               hal_nvm_read(item, SCENE_CONFIG_V1_SIZE, data) == HAL_NVM_SUCCESS &&
+                               data[0] == 1;
+
+    if (current || legacy) {
         switch_scene_config config = {
-            .enabled   = data[1],
-            .group_id  = (uint16_t)data[2] | ((uint16_t)data[3] << 8),
-            .double_id = data[4],
-            .triple_id = data[5],
+            .enabled        = data[1],
+            .group_id       = (uint16_t)data[2] | ((uint16_t)data[3] << 8),
+            .double_id      = data[4],
+            .triple_id      = data[5],
+            .single_enabled = current ? data[6] : 0,
+            .single_id      = current ? data[7] : 0,
         };
         if (valid_scenes(&config)) {
             cluster->scenes = config;
@@ -158,6 +169,7 @@ static void store_scenes(zigbee_switch_cluster *cluster) {
             SCENE_CONFIG_VERSION,      config->enabled,
             (uint8_t)config->group_id, (uint8_t)(config->group_id >> 8),
             config->double_id,         config->triple_id,
+            config->single_enabled,    config->single_id,
         };
         if (hal_nvm_write(NV_ITEM_SWITCH_SCENE_CONFIG(cluster->switch_idx), sizeof(data),
                           data) == HAL_NVM_SUCCESS) {
@@ -174,16 +186,32 @@ static void recall_gesture_scene(zigbee_switch_cluster *cluster) {
     if (!cluster->scene_armed || !single_click_binding_is_current(cluster) ||
         cluster->mode == ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_TOGGLE ||
         !same_scenes(&cluster->scenes, &cluster->saved_scenes) ||
-        cluster->press_count < 2 || cluster->press_count > cluster->max_press_count) {
+        cluster->press_count == 0 || cluster->press_count > cluster->max_press_count) {
         return;
     }
 
-    uint8_t payload[5];
-    uint8_t scene_id = cluster->press_count ==
-                       2 ? cluster->scenes.double_id : cluster->scenes.triple_id;
-    hal_zigbee_cmd cmd = build_recall_scene_cmd(cluster->endpoint, cluster->scenes.group_id,
+    const switch_scene_config *config = &cluster->scenes;
+    uint8_t scene_id;
+    switch (cluster->press_count) {
+    case 1:
+        if (!config->single_enabled) {
+            return;
+        }
+        scene_id = config->single_id;
+        break;
+    case 2:
+        scene_id = config->double_id;
+        break;
+    case 3:
+        scene_id = config->triple_id;
+        break;
+    default:
+        return;
+    }
+    uint8_t        payload[5];
+    hal_zigbee_cmd cmd = build_recall_scene_cmd(cluster->endpoint, config->group_id,
                                                 scene_id, payload);
-    hal_zigbee_status_t status = hal_zigbee_send_to_bound_group(&cmd, cluster->scenes.group_id);
+    hal_zigbee_status_t status = hal_zigbee_send_to_bound_group(&cmd, config->group_id);
 
     if (status != HAL_ZIGBEE_OK) {
         printf("Switch %u: scene recall not sent (%u)\r\n", cluster->switch_idx, status);
@@ -197,7 +225,10 @@ static void confirm_press(void *arg) {
         // Recheck the live configuration even if the platform did not issue
         // an attribute callback (e.g. Telink Write Attributes Undivided).
         if (cluster->press_count == 1 && single_click_binding_is_current(cluster)) {
-            switch_cluster_send_binding_on(cluster, cluster->single_click_command);
+            bool queued = switch_cluster_send_binding_on(cluster, cluster->single_click_command);
+            if (queued && cluster->single_click_command == ZCL_CMD_ONOFF_TOGGLE) {
+                recall_gesture_scene(cluster);
+            }
         } else if (cluster->press_count > 1) {
             recall_gesture_scene(cluster);
         }
@@ -281,6 +312,10 @@ void switch_cluster_add_scenes(zigbee_switch_cluster *cluster,
                ATTR_WRITABLE, cluster->scenes.double_id);
     SETUP_ATTR(14, ZCL_ATTR_SWITCH_SCENES_TRIPLE_ID, ZCL_DATA_TYPE_UINT8,
                ATTR_WRITABLE, cluster->scenes.triple_id);
+    SETUP_ATTR(15, ZCL_ATTR_SWITCH_SCENES_SINGLE_ENABLED, ZCL_DATA_TYPE_BOOLEAN,
+               ATTR_WRITABLE, cluster->scenes.single_enabled);
+    SETUP_ATTR(16, ZCL_ATTR_SWITCH_SCENES_SINGLE_ID, ZCL_DATA_TYPE_UINT8,
+               ATTR_WRITABLE, cluster->scenes.single_id);
     cfg->attribute_count += SWITCH_SCENE_ATTR_COUNT;
     endpoint->clusters[endpoint->cluster_count++] = (hal_zigbee_cluster) {
         .cluster_id = ZCL_CLUSTER_SCENES, .is_server = 0,
@@ -462,13 +497,13 @@ static uint8_t switch_cluster_resolve_binding_on(const zigbee_switch_cluster *cl
     }
 }
 
-static void switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id) {
+static bool switch_cluster_send_binding_on(const zigbee_switch_cluster *cluster, uint8_t cmd_id) {
     if (cmd_id == NO_ONOFF_COMMAND ||
         hal_zigbee_get_network_status() != HAL_ZIGBEE_NETWORK_JOINED) {
-        return;
+        return false;
     }
     hal_zigbee_cmd c = build_onoff_cmd(cluster->endpoint, cmd_id);
-    hal_zigbee_send_cmd_to_bindings(&c);
+    return hal_zigbee_send_cmd_to_bindings(&c) == HAL_ZIGBEE_OK;
 }
 
 // Send OnOff command based on ON position (position 1 in ZCL docs).
@@ -714,7 +749,7 @@ void synchronize_multistate_state(zigbee_switch_cluster *cluster) {
 void switch_cluster_on_write_attr(zigbee_switch_cluster *cluster,
                                   uint16_t attribute_id) {
     if (attribute_id >= ZCL_ATTR_SWITCH_SCENES_ENABLED &&
-        attribute_id <= ZCL_ATTR_SWITCH_SCENES_TRIPLE_ID) {
+        attribute_id <= ZCL_ATTR_SWITCH_SCENES_SINGLE_ID) {
         if (cluster->scene_client) {
             store_scenes(cluster);
         }

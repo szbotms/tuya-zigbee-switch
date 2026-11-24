@@ -85,6 +85,8 @@
 #define ZCL_ATTR_SWITCH_SCENES_GROUP_ID                           0xff0b
 #define ZCL_ATTR_SWITCH_SCENES_DOUBLE_ID                          0xff0c
 #define ZCL_ATTR_SWITCH_SCENES_TRIPLE_ID                          0xff0d
+#define ZCL_ATTR_SWITCH_SCENES_SINGLE_ENABLED                     0xff0e
+#define ZCL_ATTR_SWITCH_SCENES_SINGLE_ID                          0xff0f
 
 
 // Multistate cluster
