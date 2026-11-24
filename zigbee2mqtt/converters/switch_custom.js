@@ -39,8 +39,8 @@ const romasku = {
             scene_group_id: {id: 0xff0b, type: Zcl.DataType.UINT16, max: 0xfff7, description: "Group ID of the sole Scenes binding (0 means unset; disable recall before clearing)."},
             double_click_scene_id: {id: 0xff0c, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed double click."},
             triple_click_scene_id: {id: 0xff0d, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled on a confirmed triple click."},
-            single_click_scene_enabled: {id: 0xff0e, type: Zcl.DataType.BOOLEAN, description: "Also recall a scene after the single-click Toggle. Warning: use a scene without On/Off state, or it may override the Toggle."},
-            single_click_scene_id: {id: 0xff0f, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled after Toggle when single-click scene recall is enabled."},
+            single_click_scene_enabled: {id: 0xff0e, type: Zcl.DataType.BOOLEAN, description: "Recall a scene on a confirmed single click in toggle_simple mode. If On/Off is bound, use a scene without On/Off state to avoid overriding Toggle."},
+            single_click_scene_id: {id: 0xff0f, type: Zcl.DataType.UINT8, max: 255, description: "Scene ID recalled when single-click scene recall is enabled."},
         };
         const supports = (ep) => ep?.supportsOutputCluster?.("genScenes");
         const getEndpoint = (meta) => {
@@ -73,14 +73,14 @@ const romasku = {
                         [`${key}_${name}`, decode(msg.data[cfg.id], cfg.max)]));
                 },
             }],
-            toZigbee: [{
-                key: Object.keys(settings),
-                convertGet: async (entity, key, meta) => {
-                    await getEndpoint(meta).read(cluster, [settings[key].id]);
+            // Zigbee2MQTT calls each converter at most once per endpoint in a /set.
+            toZigbee: Object.entries(settings).map(([key, {id, type, max}]) => ({
+                key: [key],
+                convertGet: async (entity, _key, meta) => {
+                    await getEndpoint(meta).read(cluster, [id]);
                 },
-                convertSet: async (entity, key, value, meta) => {
+                convertSet: async (entity, _key, value, meta) => {
                     const ep = getEndpoint(meta);
-                    const {id, type, max} = settings[key];
                     if (max === undefined ? typeof value !== "boolean" : !Number.isInteger(value) || value < 0 || value > max) {
                         throw new Error(`Invalid ${key}`);
                     }
@@ -93,7 +93,7 @@ const romasku = {
                     }
                     return {state: {[key]: value}};
                 },
-            }],
+            })),
             configure: [async (device) => {
                 for (let i = 1; i <= switchNames.length; i++) {
                     const ep = device.getEndpoint(i);

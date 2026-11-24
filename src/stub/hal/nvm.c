@@ -77,6 +77,13 @@ hal_nvm_status_t hal_nvm_read(uint8_t item_id, uint16_t size, uint8_t *data) {
         return HAL_NVM_NOT_FOUND;
     }
 
+    // Model the Telink lookup: a record of the wrong length is not found.
+    struct stat st;
+    if (fstat(fileno(file), &st) == 0 && S_ISREG(st.st_mode) && st.st_size != size) {
+        fclose(file);
+        return HAL_NVM_NOT_FOUND;
+    }
+
     size_t read_bytes = fread(data, 1, size, file);
     fclose(file);
 

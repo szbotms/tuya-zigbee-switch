@@ -258,6 +258,26 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
     return status == ZCL_STA_SUCCESS ? HAL_ZIGBEE_OK : HAL_ZIGBEE_ERR_SEND_FAILED;
 }
 
+static bool binding_matches(const aps_binding_entry_t *entry, uint8_t endpoint,
+                            uint16_t cluster_id) {
+    return entry->used == 1 && entry->srcEp == endpoint && entry->clusterId == cluster_id;
+}
+
+bool hal_zigbee_has_binding(uint8_t endpoint, uint16_t cluster_id) {
+    // Removals leave holes, so scan the whole table.
+    const aps_binding_entry_t *entries = aps_bindingTblEntryGet();
+
+    for (unsigned i = 0; i < APS_BINDING_TABLE_NUM; ++i) {
+        const aps_binding_entry_t *entry = &entries[i];
+        if (binding_matches(entry, endpoint, cluster_id) &&
+            (entry->dstAddrMode == APS_SHORT_GROUPADDR_NOEP ||
+             entry->dstAddrMode == APS_LONG_DSTADDR_WITHEP)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
                                   unsigned outputs, unsigned attributes) {
     // Count the entire layout (including OTA and descriptor-only clients)
@@ -281,8 +301,7 @@ hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,
     bool found = false;
     for (unsigned i = 0; i < APS_BINDING_TABLE_NUM; ++i) {
         const aps_binding_entry_t *entry = &entries[i];
-        if (entry->used != 1 || entry->srcEp != cmd->endpoint ||
-            entry->clusterId != cmd->cluster_id) {
+        if (!binding_matches(entry, cmd->endpoint, cmd->cluster_id)) {
             continue;
         }
         if (found || entry->dstAddrMode != APS_SHORT_GROUPADDR_NOEP ||

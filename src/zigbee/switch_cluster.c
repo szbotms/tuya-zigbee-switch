@@ -138,9 +138,10 @@ static void load_scenes(zigbee_switch_cluster *cluster) {
     cluster->scenes = (switch_scene_config) { .double_id = 1, .triple_id = 2 };
     hal_nvm_status_t status  = hal_nvm_read(item, sizeof(data), data);
     bool             current = status == HAL_NVM_SUCCESS && data[0] == SCENE_CONFIG_VERSION;
-    bool             legacy  = !current && status != HAL_NVM_NOT_FOUND &&
-                               hal_nvm_read(item, SCENE_CONFIG_V1_SIZE, data) == HAL_NVM_SUCCESS &&
-                               data[0] == 1;
+    // Telink reports a different record length as NOT_FOUND, not a read error.
+    bool legacy = status == HAL_NVM_NOT_FOUND &&
+                  hal_nvm_read(item, SCENE_CONFIG_V1_SIZE, data) == HAL_NVM_SUCCESS &&
+                  data[0] == 1;
 
     if (current || legacy) {
         switch_scene_config config = {
@@ -225,8 +226,11 @@ static void confirm_press(void *arg) {
         // Recheck the live configuration even if the platform did not issue
         // an attribute callback (e.g. Telink Write Attributes Undivided).
         if (cluster->press_count == 1 && single_click_binding_is_current(cluster)) {
-            bool queued = switch_cluster_send_binding_on(cluster, cluster->single_click_command);
-            if (queued && cluster->single_click_command == ZCL_CMD_ONOFF_TOGGLE) {
+            bool has_onoff_binding = hal_zigbee_has_binding(cluster->endpoint, ZCL_CLUSTER_ON_OFF);
+            // With no On/Off target, the scene can run on its own.
+            bool ready = !has_onoff_binding ||
+                         switch_cluster_send_binding_on(cluster, cluster->single_click_command);
+            if (ready && cluster->single_click_command == ZCL_CMD_ONOFF_TOGGLE) {
                 recall_gesture_scene(cluster);
             }
         } else if (cluster->press_count > 1) {

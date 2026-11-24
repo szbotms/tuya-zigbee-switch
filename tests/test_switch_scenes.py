@@ -4,7 +4,7 @@ import pytest
 
 from client import StubProc
 from tests.conftest import Device
-from tests.test_switch_gestures import collect_reports, setup_button
+from tests.test_switch_gestures import bind_onoff, collect_reports, setup_button
 from tests.zcl_consts import (
     ZCL_CLUSTER_LEVEL_CONTROL,
     ZCL_CLUSTER_ON_OFF,
@@ -72,6 +72,7 @@ def test_avatto_end_device_recall_wire_format(count, gesture, scene):
         device.step_time(60)
         set_scenes(device)
         bind(device)
+        bind_onoff(device)
         reports = collect_reports(proc)
         scene_frames = []
         proc.on_event.append(lambda ev: scene_frames.append(ev.payload) if
@@ -129,7 +130,10 @@ def test_scene_recall_skips_nonmatching_target_without_losing_action(device, but
 
 
 @pytest.mark.parametrize("limit", [1, 3])
-@pytest.mark.parametrize("scenario", ["scene_zero", "custom_scene", "no_scene_binding", "master_disabled", "not_toggle"])
+@pytest.mark.parametrize("scenario", [
+    "scene_zero", "custom_scene", "no_scene_binding", "scene_only", "other_endpoint_onoff",
+    "no_bindings", "master_disabled", "not_toggle",
+])
 def test_single_click_scene_is_optional_and_follows_toggle(device, button_pin, limit, scenario):
     set_scenes(device, enabled=int(scenario != "master_disabled"))
     setup_button(device, 1, limit)
@@ -138,8 +142,13 @@ def test_single_click_scene_is_optional_and_follows_toggle(device, button_pin, l
         device.write_zigbee_attr(1, SWITCH_CFG, SINGLE, 255)
     if scenario == "not_toggle":
         device.zcl_switch_actions_set(1, ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_ONOFF)
-    if scenario != "no_scene_binding":
+    if scenario not in {"no_scene_binding", "no_bindings"}:
         bind(device)
+    has_onoff_binding = scenario not in {"scene_only", "other_endpoint_onoff", "no_bindings"}
+    if has_onoff_binding:
+        bind_onoff(device, kind="unicast" if scenario == "custom_scene" else "group")
+    elif scenario == "other_endpoint_onoff":
+        bind_onoff(device, endpoint=2)
     reports = collect_reports(device.p)
 
     click_sequence(device, button_pin, 1)
@@ -148,8 +157,8 @@ def test_single_click_scene_is_optional_and_follows_toggle(device, button_pin, l
         finish_sequence(device)
 
     onoff_command = ZCL_CMD_ONOFF_ON if scenario == "not_toggle" else ZCL_CMD_ONOFF_TOGGLE
-    expected = [(ZCL_CLUSTER_ON_OFF, onoff_command, b"")]
-    if scenario in {"scene_zero", "custom_scene"}:
+    expected = [(ZCL_CLUSTER_ON_OFF, onoff_command, b"")] if has_onoff_binding else []
+    if scenario in {"scene_zero", "custom_scene", "scene_only", "other_endpoint_onoff"}:
         scene = 255 if scenario == "custom_scene" else 0
         expected.append((SCENES, 0x05, bytes([0x34, 0x12, scene, 0xFF, 0xFF])))
     assert [(cmd.cluster, cmd.cmd, cmd.data) for cmd in device.zcl_list_cmds(1)] == expected
@@ -173,6 +182,7 @@ def test_single_click_config_preserves_v1_scenes_and_persists(device_config):
         device.write_zigbee_attr(1, SWITCH_CFG, SINGLE, 42)
         device.write_zigbee_attr(1, SWITCH_CFG, SINGLE_ENABLED, 1)
 
+    assert legacy.read_bytes() == bytes([2, 1, 0x34, 0x12, 7, 8, 1, 42])
     with StubProc(device_config=device_config) as proc:
         device = Device(proc)
         assert device.read_zigbee_attr(1, SWITCH_CFG, SINGLE) == "42"

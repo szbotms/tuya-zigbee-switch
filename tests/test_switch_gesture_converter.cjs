@@ -122,7 +122,8 @@ async function verifyConfig() {
 }
 
 async function verifyScenes() {
-    const scenes = model.toZigbee.find((c) => c.key.includes("scene_enabled"));
+    const scenes = (key) => model.toZigbee.find((c) => c.key.includes(key));
+    const set = (key, value, meta) => scenes(key).convertSet(ep, key, value, meta);
     const prefix = "genOnOffSwitchCfg";
     const attrs = {0xff0a: 0, 0xff0b: 0, 0xff0c: 1, 0xff0d: 2, 0xff0e: 0, 0xff0f: 0};
     const writes = [];
@@ -153,30 +154,43 @@ async function verifyScenes() {
         ["single_click_scene_enabled", true, 0xff0e, 0x10],
     ]) {
         assert(properties().includes(`${key}_switch`));
-        assert.deepEqual(await scenes.convertSet(ep, key, value, meta), {state: {[key]: value}});
+        assert.deepEqual(await set(key, value, meta), {state: {[key]: value}});
         assert.deepEqual(writes.at(-1), {[id]: {type, value: Number(value)}});
-        await scenes.convertGet(ep, key, meta);
+        await scenes(key).convertGet(ep, key, meta);
         const msg = {endpoint: ep, data: {[id]: attrs[id]}, type: "readResponse"};
         const found = model.fromZigbee.filter((c) => c.cluster === prefix && c.type.includes(msg.type))
             .map((c) => c.convert(model, msg, undefined, {}, meta)).filter(Boolean);
         assert.deepEqual(found, [{[`${key}_switch`]: value}]);
     }
-    await assert.rejects(scenes.convertSet(ep, "scene_group_id", 0xfff8, meta), /Invalid scene_group_id/);
-    await assert.rejects(scenes.convertSet(ep, "double_click_scene_id", 256, meta), /Invalid double_click_scene_id/);
-    await assert.rejects(scenes.convertSet(ep, "scene_enabled", 1, meta), /Invalid scene_enabled/);
-    await assert.rejects(scenes.convertSet(ep, "single_click_scene_id", 256, meta), /Invalid single_click_scene_id/);
+
+    // /set dispatch invokes each converter object only once per endpoint.
+    const message = {scene_group_id_switch: 0x4321, double_click_scene_id_switch: 7, single_click_scene_id_switch: 8};
+    const used = new Set();
+    for (const [property, value] of Object.entries(message)) {
+        const key = property.slice(0, -"_switch".length);
+        const converter = scenes(key);
+        if (used.has(converter)) continue;
+        await converter.convertSet(ep, key, value, {...meta, message});
+        used.add(converter);
+    }
+    assert.deepEqual([attrs[0xff0b], attrs[0xff0c], attrs[0xff0f]], [0x4321, 7, 8]);
+
+    await assert.rejects(set("scene_group_id", 0xfff8, meta), /Invalid scene_group_id/);
+    await assert.rejects(set("double_click_scene_id", 256, meta), /Invalid double_click_scene_id/);
+    await assert.rejects(set("scene_enabled", 1, meta), /Invalid scene_enabled/);
+    await assert.rejects(set("single_click_scene_id", 256, meta), /Invalid single_click_scene_id/);
     const original = writes.length;
     sceneClient = false;
     assert(!properties().includes("scene_enabled_switch"));
-    await assert.rejects(scenes.convertSet(ep, "scene_enabled", false, meta), /supports Scenes/);
+    await assert.rejects(set("scene_enabled", false, meta), /supports Scenes/);
     sceneClient = true;
     delete attrs[0xff0c];
     delete attrs[0xff0e];
-    await assert.rejects(scenes.convertSet(ep, "double_click_scene_id", 1, meta), /did not confirm support/);
-    await assert.rejects(scenes.convertSet(ep, "single_click_scene_enabled", true, meta), /did not confirm support/);
+    await assert.rejects(set("double_click_scene_id", 1, meta), /did not confirm support/);
+    await assert.rejects(set("single_click_scene_enabled", true, meta), /did not confirm support/);
     assert.equal(writes.length, original);
     rejectWrite = true;
-    await assert.rejects(scenes.convertSet(ep, "scene_group_id", 0, meta), /was not applied/);
+    await assert.rejects(set("scene_group_id", 0, meta), /was not applied/);
 
     // Same Recall payload as the End Device stub, decoded with real herdsman.
     const bytes = Buffer.from("115a05341201ffff", "hex");

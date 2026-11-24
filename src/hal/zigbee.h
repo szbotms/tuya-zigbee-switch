@@ -154,6 +154,9 @@ typedef enum {
  */
 hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd);
 
+/** Whether any outgoing binding matches this source endpoint and cluster. */
+bool hal_zigbee_has_binding(uint8_t endpoint, uint16_t cluster_id);
+
 /** Send once to group_id, only if the source endpoint/cluster has exactly
  * one binding and that binding targets this group (no unicast or fanout). */
 hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,

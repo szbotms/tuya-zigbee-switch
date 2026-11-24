@@ -199,6 +199,15 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
     return HAL_ZIGBEE_OK;
 }
 
+bool hal_zigbee_has_binding(uint8_t endpoint, uint16_t cluster_id) {
+    for (int i = 0; i < binding_count; ++i) {
+        if (bindings[i].endpoint == endpoint && bindings[i].cluster_id == cluster_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
                                   unsigned outputs, unsigned attributes) {
     // Exercise the Telink descriptor limits in the simulator.

@@ -4,6 +4,8 @@
 #include "app/framework/include/af.h"
 #include "app/framework/plugin/ota-client/ota-client.h"
 #include "network-steering.h"
+#include "stack/include/binding-table.h"
+#include "stack/include/multi-network.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -310,6 +312,21 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
 
     return (st_unicast == SL_STATUS_OK || st_multicast == SL_STATUS_OK)
            ? HAL_ZIGBEE_OK : HAL_ZIGBEE_ERR_SEND_FAILED;
+}
+
+bool hal_zigbee_has_binding(uint8_t endpoint, uint16_t cluster_id) {
+    uint8_t network = sl_zigbee_get_current_network();
+    uint8_t size    = sl_zigbee_get_binding_table_size();
+
+    for (uint8_t i = 0; i < size; ++i) {
+        sl_zigbee_binding_table_entry_t entry;
+        if (sl_zigbee_get_binding(i, &entry) == SL_STATUS_OK &&
+            entry.type != SL_ZIGBEE_UNUSED_BINDING && entry.local == endpoint &&
+            entry.clusterId == cluster_id && entry.networkIndex == network) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,

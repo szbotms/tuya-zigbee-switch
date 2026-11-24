@@ -82,13 +82,15 @@ the matching external converter and updating the switch firmware:
    to the numeric Zigbee group ID, set `double_click_scene_id_switch` and
    `triple_click_scene_id_switch` (defaults **1** and **2**), then set
    `scene_enabled_switch` to true. Reads after writes confirm the applied value.
+   With MQTT `/set`, multiple Scenes fields can be written in one message, but
+   set the group ID before enabling recall; the writes are not atomic.
 
 Scene recall is disabled by default. A missing, mismatched, ambiguous or
 unicast Scenes binding causes no scene command to be sent. The destination
 group must match the Group ID in the RecallScene payload. Group ID `0` means
 unset; disable recall before clearing it. Scene IDs `0`–`255` are accepted.
-By default, single clicks still send only the configured On/Off action. See
-below for optional recall alongside Toggle. The hold/release and Zigbee2MQTT
+By default, single clicks send only the configured On/Off action if bound.
+See below for optional recall. The hold/release and Zigbee2MQTT
 actions are unchanged. Direct group recall does
 not require HA or Zigbee2MQTT to run after configuration, but the Zigbee mesh
 and the End Device's parent must remain available.
@@ -97,15 +99,17 @@ and the End Device's parent must remain available.
 
 With Scenes enabled, binding mode `single_click` and action `toggle_simple`,
 set `single_click_scene_id_switch` (default **0**) and turn on
-`single_click_scene_enabled_switch` (off by default). On a confirmed single
-click the switch submits Toggle first, then recalls the selected scene in the
-same Scenes group. Keep the On/Off binding pointed at the same lamps. A missing
-or invalid Scenes binding does not stop Toggle.
+`single_click_scene_enabled_switch` (off by default). If the button has an
+On/Off binding, it submits Toggle before recalling the selected scene. Keep
+both bindings pointed at the same lamps when using both commands. Without an
+On/Off binding, the switch sends only RecallScene to the valid Scenes group.
+A missing or invalid Scenes binding does not stop Toggle.
 
-**Warning:** create this scene with `scene_add` and **omit `state`**. Do not
-use a scene that stores `ON` or `OFF`, including one captured by `scene_store`
-that contains On/Off. Its recall can override Toggle and prevent the light from
-staying off or on. For example, where the target group supports both attributes:
+**Warning when using both commands:** create this scene with `scene_add` and
+**omit `state`**. Do not use a scene that stores `ON` or `OFF`, including one
+captured by `scene_store` that contains On/Off. Its recall can override Toggle
+and prevent the light from staying off or on. For example, where the target
+group supports both attributes:
 
 ```json
 {"scene_add":{"ID":0,"brightness":140,"color_temp":370}}
@@ -124,9 +128,10 @@ four-relay layout with Scenes uses 35 descriptors as an End Device (34 as a
 router), including the existing OTA client.
 
 The new per-switch scene record does not change the legacy relay or gesture
-NVM records. Earlier Phase 3 Scenes settings are read
-with single-click recall disabled; after a Scenes settings write the old
-Phase 3 build cannot read the new record. Group 0/unicast scenes and multiple group targets are not
+NVM records. Earlier Phase 3 Scenes settings are read with single-click recall
+disabled. After a Scenes settings write, older firmware cannot read the new
+record: on downgrade, it may fall back to the older values if still present.
+Group 0/unicast scenes and multiple group targets are not
 supported. No default color-temperature logic is applied to Toggle.
 
 ## Verification without hardware
