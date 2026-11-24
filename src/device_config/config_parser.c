@@ -1,6 +1,7 @@
 #include "hal/gpio.h"
 #include "hal/printf_selector.h"
 #include "hal/zigbee.h"
+#include "hal/zigbee_limits.h"
 #include "zigbee/basic_cluster.h"
 #include "zigbee/battery_cluster.h"
 #include "zigbee/consts.h"
@@ -62,7 +63,7 @@ uint8_t cover_switch_clusters_cnt = 0;
 zigbee_cover_cluster cover_clusters[3];
 uint8_t cover_clusters_cnt = 0;
 
-hal_zigbee_cluster  clusters[32];
+hal_zigbee_cluster  clusters[HAL_ZIGBEE_MAX_CLUSTERS];
 hal_zigbee_endpoint endpoints[10];
 
 uint8_t allow_simultaneous_latching_pulses = 0;
@@ -105,8 +106,11 @@ static void add_switch_scene_clients(uint8_t endpoint_count) {
             return;
         }
         for (unsigned j = 0; j < ep->cluster_count; ++j) {
-            outputs    += !ep->clusters[j].is_server;
-            attributes += ep->clusters[j].attribute_count;
+            outputs += !ep->clusters[j].is_server;
+            // Telink manages OTA attributes outside the HAL attribute table.
+            if (ep->clusters[j].cluster_id != ZCL_CLUSTER_OTA_BOOTLOAD) {
+                attributes += ep->clusters[j].attribute_count;
+            }
         }
     }
     unsigned total = used + switch_clusters_cnt;

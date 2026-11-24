@@ -118,8 +118,13 @@ while off or apply the scene differently; some lamps may turn on even when
 and disable this option if it does not. This does not change `color_temp_startup`.
 
 Silicon Labs builds and layouts without sufficient descriptor capacity do not
-advertise this feature. The new per-switch scene record does not change the
-legacy relay or gesture NVM records. Earlier Phase 3 Scenes settings are read
+advertise this feature. Telink supports up to 48 cluster descriptors in total;
+the separate limit of 128 application attributes still applies. A four-button,
+four-relay layout with Scenes uses 35 descriptors as an End Device (34 as a
+router), including the existing OTA client.
+
+The new per-switch scene record does not change the legacy relay or gesture
+NVM records. Earlier Phase 3 Scenes settings are read
 with single-click recall disabled; after a Scenes settings write the old
 Phase 3 build cannot read the new record. Group 0/unicast scenes and multiple group targets are not
 supported. No default color-temperature logic is applied to Toggle.

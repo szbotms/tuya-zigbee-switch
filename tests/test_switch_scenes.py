@@ -34,9 +34,9 @@ def bind(device, group_id=0x1234, ep=1, cluster=SCENES, kind="group"):
     assert device.p.exec(f"bind {ep} {cluster:x} {group_id:x} {kind}").ok
 
 
-def expect_descriptor(proc, endpoint, expected):
+def expect_descriptor(proc, endpoint, expected, cluster=SCENES):
     # Query the actual endpoint descriptor instead of inferring it from sends.
-    result = proc.exec(f"zcl_dir {endpoint} {SCENES:x}")
+    result = proc.exec(f"zcl_dir {endpoint} {cluster:x}")
     if expected is None:
         assert not result.ok
     else:
@@ -269,10 +269,52 @@ def test_scene_config_persistence_validation_and_failed_save(device_config):
         assert [c.data for c in device.zcl_list_cmds(1, SCENES)] == [bytes.fromhex("341200ffff"), bytes.fromhex("3412ffffff")]
 
 
-def test_scenes_do_not_displace_existing_descriptors_when_table_is_full():
-    config = "StubManufacturer;StubScenes;LC0;SA0u;SA1u;SA2u;SA3u;RB0;RB1;RB2;RB3;"
+FOUR_GANG = "StubManufacturer;StubScenes;LC0;SA0u;SA1u;SA2u;SA3u;RB0;RB1;RB2;RB3;ID0;ID1;ID2;ID3;"
+
+
+@pytest.mark.parametrize("stub", ["stub_device", "stub_end_device"])
+def test_four_gang_scenes_keep_ota_and_existing_endpoints(stub):
+    with StubProc(cmd=[f"./build/stub/{stub}"], device_config=FOUR_GANG) as proc:
+        device = Device(proc)
+        expect_descriptor(proc, 1, 0, cluster=0x0019)  # OTA upgrade client
+        if stub == "stub_end_device":
+            expect_descriptor(proc, 1, 1, cluster=0x0020)  # Poll Control server
+        for ep in range(1, 5):
+            expect_descriptor(proc, ep, 0)
+            expect_descriptor(proc, ep, 0, cluster=ZCL_CLUSTER_ON_OFF)
+            expect_descriptor(proc, ep, 0, cluster=ZCL_CLUSTER_LEVEL_CONTROL)
+            assert device.read_zigbee_attr(ep, SWITCH_CFG, ENABLED) == "0"
+            setup_button(device, ep, 2)
+            device.zcl_switch_relay_mode_set(ep, ZCL_ONOFF_CONFIGURATION_RELAY_MODE_DETACHED)
+            device.zcl_switch_binding_mode_set(ep, ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SINGLE_CLICK)
+            device.write_zigbee_attr(ep, SWITCH_CFG, GROUP, 0x1200 + ep)
+            device.write_zigbee_attr(ep, SWITCH_CFG, DOUBLE, 10 + ep)
+            device.write_zigbee_attr(ep, SWITCH_CFG, ENABLED, 1)
+            bind(device, group_id=0x1200 + ep, ep=ep)
+
+        for ep in range(5, 9):
+            expect_descriptor(proc, ep, None)
+            expect_descriptor(proc, ep, 1, cluster=ZCL_CLUSTER_ON_OFF)
+            expect_descriptor(proc, ep, 1, cluster=0x0004)  # Groups server
+            assert device.zcl_relay_get(ep) == "0"
+
+        for ep in range(1, 5):
+            click_sequence(device, f"A{ep - 1}", 2)
+            finish_sequence(device)
+
+        assert [(cmd.ep, cmd.data) for cmd in device.zcl_list_cmds(cluster=SCENES)] == [
+            (ep, bytes([ep, 0x12, 10 + ep, 0xFF, 0xFF])) for ep in range(1, 5)
+        ]
+        assert not device.zcl_list_cmds(cluster=ZCL_CLUSTER_ON_OFF)
+
+
+def test_scenes_do_not_displace_existing_descriptors_when_attribute_table_is_full():
+    # Four indicator-equipped relays already have 127 attributes with Scenes;
+    # the three extra battery attributes push this synthetic layout past 128.
+    config = FOUR_GANG + "BTC5;"
     with StubProc(cmd=["./build/stub/stub_end_device"], device_config=config) as proc:
         device = Device(proc)
+        expect_descriptor(proc, 1, 0, cluster=0x0019)
         for ep in range(1, 5):
             expect_descriptor(proc, ep, None)
             assert device.zcl_switch_get_multistate_value(ep) == "0"

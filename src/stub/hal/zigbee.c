@@ -1,4 +1,5 @@
 #include "hal/zigbee.h"
+#include "hal/zigbee_limits.h"
 #include "stub/machine_io.h"
 #include "zigbee/consts.h"
 #include <stdint.h>
@@ -201,7 +202,8 @@ hal_zigbee_status_t hal_zigbee_send_cmd_to_bindings(const hal_zigbee_cmd *cmd) {
 bool hal_zigbee_scene_clients_fit(uint8_t endpoints, unsigned clusters,
                                   unsigned outputs, unsigned attributes) {
     // Exercise the Telink descriptor limits in the simulator.
-    return endpoints <= 8 && clusters <= 32 && outputs <= 32 && attributes <= 128;
+    return endpoints <= 8 && clusters <= HAL_ZIGBEE_MAX_CLUSTERS &&
+           outputs <= 32 && clusters - outputs <= 32 && attributes <= 128;
 }
 
 hal_zigbee_status_t hal_zigbee_send_to_bound_group(const hal_zigbee_cmd *cmd,

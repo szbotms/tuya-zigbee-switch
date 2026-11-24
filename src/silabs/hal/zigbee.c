@@ -1,4 +1,5 @@
 #include "hal/zigbee.h"
+#include "hal/zigbee_limits.h"
 
 #include "app/framework/include/af.h"
 #include "app/framework/plugin/ota-client/ota-client.h"
@@ -6,11 +7,10 @@
 #include <stddef.h>
 #include <string.h>
 
-#define MAX_CLUSTERS    32
-#define MAX_ATTRS       128
+#define MAX_ATTRS    128
 
 sl_zigbee_af_endpoint_type_t      endpoint_type_buffer[ZCL_FIXED_ENDPOINT_COUNT];
-sl_zigbee_af_cluster_t            clusters_buffer[MAX_CLUSTERS];
+sl_zigbee_af_cluster_t            clusters_buffer[HAL_ZIGBEE_MAX_CLUSTERS];
 sl_zigbee_af_attribute_metadata_t attributes_buffer[MAX_ATTRS];
 
 hal_zigbee_endpoint *hal_endpoints;
